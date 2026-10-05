@@ -8,6 +8,14 @@ export interface ExternalTrack {
   durationMs?: number;
   spotifyId?: string;
   youtubeId?: string;
+  previewUrl?: string;
+  artworkUrl?: string;
+}
+
+/** Real audio clip and album cover of a song. */
+export interface TrackMedia {
+  previewUrl?: string;
+  artworkUrl?: string;
 }
 
 export const REQUEST_TIMEOUT_MS = 6000;

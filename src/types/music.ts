@@ -26,7 +26,14 @@ export interface Song {
   durationSec: number;
   youtubeId?: string;
   spotifyId?: string;
+  /** Real 30-second audio clip (iTunes preview) */
+  previewUrl?: string;
+  /** Album cover */
+  artworkUrl?: string;
 }
+
+/** Fields that are looked up after a song is created. */
+export type SongBindings = Partial<Pick<Song, "youtubeId" | "spotifyId" | "previewUrl" | "artworkUrl">>;
 
 /**
  * A song inside the playlist. The unique `uid` lets the same song appear
@@ -38,7 +45,7 @@ export interface Track extends Song {
 
 export type VisualMode = "universe" | "flow" | "night" | "energy";
 
-export type PlaybackSource = "synth" | "youtube" | "spotify";
+export type PlaybackSource = "preview" | "synth" | "youtube" | "spotify";
 
 export type InsertOperation = "append" | "prepend" | "insertAt";
 
@@ -59,6 +66,19 @@ export interface SearchResponse {
   source: SearchSource;
   providers: { spotify: boolean; youtube: boolean };
   tookMs: number;
+}
+
+/** One timed line of a synced lyric (seconds from the start of the full song). */
+export interface LyricLine {
+  time: number;
+  text: string;
+}
+
+export interface LyricsResponse {
+  found: boolean;
+  instrumental: boolean;
+  plain: string | null;
+  synced: LyricLine[] | null;
 }
 
 export type PlaylistEventTone = "navigate" | "add" | "remove" | "traverse" | "warning";

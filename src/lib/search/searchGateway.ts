@@ -1,8 +1,8 @@
 import type { SearchHit, SearchResponse, Song } from "@/types/music";
 import { normalizeText } from "../utils";
-import { searchItunesTracks } from "./itunesClient";
+import { findItunesMedia, searchItunesTracks } from "./itunesClient";
 import { exploreCatalog, isInCatalog, searchLocalCatalog } from "./localSearch";
-import { createSong, simulateSongs, withBindings } from "./songFactory";
+import { createSong, simulateSongs, withBindings, withMedia } from "./songFactory";
 import { findSpotifyTrackId, isSpotifyConfigured, searchSpotifyTracks } from "./spotifyClient";
 import { findYouTubeVideoId, isYouTubeApiConfigured } from "./youtubeClient";
 
@@ -115,25 +115,34 @@ async function searchExternal(query: string): Promise<SearchHit[] | null> {
   return result;
 }
 
+/** "all" also looks up the YouTube video and the Spotify track; "media" only the audio clip and cover. */
+export type ResolveScope = "all" | "media";
+
 /**
- * Resolves the playback bindings of a searched song: the embeddable YouTube
- * video and, with Spotify credentials, the Spotify track. Metadata is kept
- * untouched, so the song keeps exactly the same shape as the catalog songs.
+ * Resolves what a song needs to be played: the real audio clip and cover
+ * (iTunes), the embeddable YouTube video and, with Spotify credentials, the
+ * Spotify track. Metadata is kept untouched.
  */
-export async function resolveBindings(song: Song): Promise<Song> {
-  const cached = readCache(bindingCache, song.id);
+export async function resolveBindings(song: Song, scope: ResolveScope = "all"): Promise<Song> {
+  const cacheKey = `${scope}:${song.id}`;
+  const cached = readCache(bindingCache, cacheKey);
   if (cached) return cached;
 
-  const [youtube, spotify] = await Promise.allSettled([
-    song.youtubeId ? Promise.resolve(song.youtubeId) : findYouTubeVideoId(song.title, song.artist),
-    song.spotifyId || !isSpotifyConfigured() ? Promise.resolve(song.spotifyId) : findSpotifyTrackId(song.title, song.artist),
+  const platforms = scope === "all";
+  const [youtube, spotify, media] = await Promise.allSettled([
+    song.youtubeId || !platforms ? Promise.resolve(song.youtubeId) : findYouTubeVideoId(song.title, song.artist),
+    song.spotifyId || !platforms || !isSpotifyConfigured() ? Promise.resolve(song.spotifyId) : findSpotifyTrackId(song.title, song.artist),
+    song.previewUrl && song.artworkUrl ? Promise.resolve({}) : findItunesMedia(song.title, song.artist),
   ]);
 
-  const resolved = withBindings(
-    song,
-    youtube.status === "fulfilled" ? youtube.value : undefined,
-    spotify.status === "fulfilled" ? spotify.value : undefined,
+  const resolved = withMedia(
+    withBindings(
+      song,
+      youtube.status === "fulfilled" ? youtube.value : undefined,
+      spotify.status === "fulfilled" ? spotify.value : undefined,
+    ),
+    media.status === "fulfilled" ? media.value : {},
   );
-  if (resolved.youtubeId || resolved.spotifyId) writeCache(bindingCache, song.id, resolved);
+  if (resolved.youtubeId || resolved.spotifyId || resolved.previewUrl) writeCache(bindingCache, cacheKey, resolved);
   return resolved;
 }

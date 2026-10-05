@@ -1,6 +1,6 @@
 import type { Genre, Song } from "@/types/music";
-import { SPOTIFY_ID_PATTERN, YOUTUBE_ID_PATTERN, hashString, mulberry32, normalizeText, titleCase } from "../utils";
-import type { ExternalTrack } from "./types";
+import { SPOTIFY_ID_PATTERN, YOUTUBE_ID_PATTERN, hashString, isHttpsUrl, mulberry32, normalizeText, titleCase } from "../utils";
+import type { ExternalTrack, TrackMedia } from "./types";
 
 type Range = [min: number, max: number];
 
@@ -64,7 +64,7 @@ export function createSong(track: ExternalTrack): Song {
     key: Math.floor(random() * 12),
     durationSec: track.durationMs ? Math.round(track.durationMs / 1000) : 150 + Math.floor(random() * 120),
   };
-  return withBindings(song, track.youtubeId, track.spotifyId);
+  return withMedia(withBindings(song, track.youtubeId, track.spotifyId), track);
 }
 
 /** Attaches playback IDs only when they have a valid format. */
@@ -72,6 +72,14 @@ export function withBindings(song: Song, youtubeId?: string, spotifyId?: string)
   const result: Song = { ...song };
   if (youtubeId && YOUTUBE_ID_PATTERN.test(youtubeId)) result.youtubeId = youtubeId;
   if (spotifyId && SPOTIFY_ID_PATTERN.test(spotifyId)) result.spotifyId = spotifyId;
+  return result;
+}
+
+/** Attaches the audio clip and the cover only when they are valid https URLs. Never overwrites. */
+export function withMedia(song: Song, media: TrackMedia): Song {
+  const result: Song = { ...song };
+  if (!result.previewUrl && isHttpsUrl(media.previewUrl)) result.previewUrl = media.previewUrl;
+  if (!result.artworkUrl && isHttpsUrl(media.artworkUrl)) result.artworkUrl = media.artworkUrl;
   return result;
 }
 

@@ -1,6 +1,6 @@
 import type { Genre, Song } from "@/types/music";
 import { GENRE_KEYS } from "./genres";
-import { SPOTIFY_ID_PATTERN, YOUTUBE_ID_PATTERN } from "./utils";
+import { SPOTIFY_ID_PATTERN, YOUTUBE_ID_PATTERN, isHttpsUrl } from "./utils";
 
 const isNumberIn = (value: unknown, min: number, max: number): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
@@ -45,14 +45,18 @@ export function parseSong(input: unknown): Song | null {
   };
   if (typeof data.youtubeId === "string" && YOUTUBE_ID_PATTERN.test(data.youtubeId)) song.youtubeId = data.youtubeId;
   if (typeof data.spotifyId === "string" && SPOTIFY_ID_PATTERN.test(data.spotifyId)) song.spotifyId = data.spotifyId;
+  if (isHttpsUrl(data.previewUrl)) song.previewUrl = data.previewUrl;
+  if (isHttpsUrl(data.artworkUrl)) song.artworkUrl = data.artworkUrl;
   return song;
 }
 
 /** Strips any extra runtime fields (like a playlist uid) and keeps only Song fields. */
 export function toSong(value: Song): Song {
-  const { id, title, artist, year, genre, energy, valence, tempo, key, durationSec, youtubeId, spotifyId } = value;
+  const { id, title, artist, year, genre, energy, valence, tempo, key, durationSec, youtubeId, spotifyId, previewUrl, artworkUrl } = value;
   const song: Song = { id, title, artist, year, genre, energy, valence, tempo, key, durationSec };
   if (youtubeId) song.youtubeId = youtubeId;
   if (spotifyId) song.spotifyId = spotifyId;
+  if (previewUrl) song.previewUrl = previewUrl;
+  if (artworkUrl) song.artworkUrl = artworkUrl;
   return song;
 }

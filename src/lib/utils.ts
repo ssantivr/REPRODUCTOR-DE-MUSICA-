@@ -60,6 +60,22 @@ export function spotifyUrl(song: Song): string {
     : `https://open.spotify.com/search/${encodeURIComponent(searchTerms(song))}`;
 }
 
+/** "Luis Fonsi ft. Daddy Yankee" → "Luis Fonsi": external catalogs match better on the main artist. */
+export function primaryArtist(artist: string): string {
+  return artist.split(/\s+(?:ft\.?|feat\.?|featuring|con|with|x|&)\s+|,/i)[0].trim() || artist;
+}
+
+const MAX_URL_LENGTH = 500;
+
+export function isHttpsUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > MAX_URL_LENGTH) return false;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 export const SPOTIFY_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
 

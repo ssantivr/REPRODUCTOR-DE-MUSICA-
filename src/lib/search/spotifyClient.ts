@@ -44,7 +44,7 @@ interface SpotifySearchPayload {
       name: string;
       artists: { name: string }[];
       duration_ms?: number;
-      album?: { release_date?: string };
+      album?: { release_date?: string; images?: { url: string }[] };
     }[];
   };
 }
@@ -68,6 +68,7 @@ export async function searchSpotifyTracks(query: string, limit = 5): Promise<Ext
       year: Number.isNaN(year) ? undefined : year,
       durationMs: item.duration_ms,
       spotifyId: item.id,
+      artworkUrl: item.album?.images?.[0]?.url,
     };
   });
 }

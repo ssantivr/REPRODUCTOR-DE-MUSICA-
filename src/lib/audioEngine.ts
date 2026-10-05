@@ -3,6 +3,8 @@ import { hashString, mulberry32 } from "./utils";
 
 /** Length of the synthesized preview, in seconds. */
 export const PREVIEW_SECONDS = 45;
+/** Usual length of a real audio clip, shown until its metadata loads. */
+export const CLIP_SECONDS = 30;
 
 const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 const MINOR = [0, 2, 3, 5, 7, 8, 10];
@@ -36,11 +38,15 @@ function scaleNote(scale: number[], degree: number): number {
 }
 
 /**
- * Web Audio API engine.
- * It does not play files: it generates a short piece in real time from the
- * song attributes (tempo, key, energy, valence, genre).
+ * Web Audio API engine with two ways of sounding a song:
+ *  - clip:  the real 30-second audio clip of the song, played by an <audio>
+ *           element routed into the graph.
+ *  - synth: a short piece generated in real time from the song attributes
+ *           (tempo, key, energy, valence, genre). It is also the fallback when
+ *           a song has no clip or the clip cannot be loaded.
  *
- * Graph: voices → bus (per song) → low-pass filter → master → analyser → output
+ * Graph: voices → bus (per song) ─┐
+ *        <audio> clip ────────────┴→ low-pass filter → master → analyser → output
  */
 export class SynthEngine {
   private ctx: AudioContext | null = null;
@@ -49,6 +55,9 @@ export class SynthEngine {
   private analyser: AnalyserNode | null = null;
   private noise: AudioBuffer | null = null;
   private bus: GainNode | null = null;
+  private audio: HTMLAudioElement | null = null;
+  /** URL of the clip that is sounding; null while the synth plays */
+  private clipUrl: string | null = null;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private track: Track | null = null;
@@ -68,10 +77,28 @@ export class SynthEngine {
     return this.track?.uid ?? null;
   }
 
+  /** Identifies what is loaded: the song and whether its clip or the synth was requested. */
+  static keyFor(track: Track, clipUrl?: string): string {
+    return `${track.uid}|${clipUrl ?? "synth"}`;
+  }
+
+  private requestedKey: string | null = null;
+
+  get loadedKey(): string | null {
+    return this.requestedKey;
+  }
+
   /** Seconds played of the current track (frozen while paused). */
   get position(): number {
     if (!this.ctx || !this.track) return 0;
+    if (this.clipUrl && this.audio) return this.audio.currentTime;
     return Math.max(0, this.ctx.currentTime - this.startedAt);
+  }
+
+  /** Total seconds of what is loaded. */
+  get duration(): number {
+    if (this.clipUrl && this.audio) return Number.isFinite(this.audio.duration) ? this.audio.duration : CLIP_SECONDS;
+    return PREVIEW_SECONDS;
   }
 
   getAnalyser(): AnalyserNode | null {
@@ -109,7 +136,21 @@ export class SynthEngine {
     const data = noise.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
 
+    // Without CORS mode the analyser would only receive silence from the clip
+    const audio = new Audio();
+    audio.crossOrigin = "anonymous";
+    audio.preload = "auto";
+    ctx.createMediaElementSource(audio).connect(tone);
+    audio.addEventListener("ended", () => {
+      if (this.clipUrl) this.finish();
+    });
+    audio.addEventListener("error", () => {
+      // The clip is gone or blocked: the song still sounds, synthesized
+      if (this.clipUrl && this.track) this.startSynth(this.track);
+    });
+
     this.ctx = ctx;
+    this.audio = audio;
     this.tone = tone;
     this.master = master;
     this.analyser = analyser;
@@ -123,12 +164,38 @@ export class SynthEngine {
     if (ctx && ctx.state === "suspended") void ctx.resume();
   }
 
-  play(track: Track): void {
+  /** Plays the real clip when `clipUrl` is given, the synthesized piece otherwise. */
+  play(track: Track, clipUrl?: string): void {
     const ctx = this.ensure();
     if (!ctx || !this.tone) return;
 
     this.stop();
+    this.requestedKey = SynthEngine.keyFor(track, clipUrl);
+    if (clipUrl && this.audio) this.startClip(track, clipUrl);
+    else this.startSynth(track);
+  }
 
+  private startClip(track: Track, clipUrl: string): void {
+    const { ctx, audio } = this;
+    if (!ctx || !audio) return;
+
+    this.track = track;
+    this.clipUrl = clipUrl;
+    this.endedFired = false;
+    this.applyTone();
+
+    void ctx.resume();
+    audio.src = clipUrl;
+    audio.currentTime = 0;
+    // Rejections are pauses that arrived first or autoplay rules; real load failures fire "error"
+    audio.play().catch(() => {});
+  }
+
+  private startSynth(track: Track): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.tone) return;
+
+    this.silence();
     this.track = track;
     this.random = mulberry32(hashString(track.id));
     this.progression = this.buildProgression(track);
@@ -150,19 +217,53 @@ export class SynthEngine {
   }
 
   pause(): void {
+    if (this.clipUrl) {
+      this.audio?.pause();
+      return;
+    }
     // No "running" check: a resume() may still be pending when pause arrives
     if (this.ctx && this.ctx.state !== "closed") void this.ctx.suspend();
   }
 
   resume(): void {
     if (this.ctx && this.ctx.state === "suspended") void this.ctx.resume();
+    if (this.clipUrl && this.audio?.paused) this.audio.play().catch(() => {});
+  }
+
+  /** Jumps to a moment of the loaded track. */
+  seek(seconds: number): void {
+    const ctx = this.ctx;
+    const track = this.track;
+    if (!ctx || !track) return;
+    const target = Math.max(0, Math.min(seconds, this.duration - 0.25));
+
+    if (this.clipUrl && this.audio) {
+      this.audio.currentTime = target;
+      return;
+    }
+    // The piece is generated step by step: restart the scheduler at the matching step
+    const stepDuration = 60 / track.tempo / 4;
+    this.step = Math.floor(target / stepDuration);
+    this.startedAt = ctx.currentTime - target;
+    this.nextStepTime = ctx.currentTime + 0.05;
   }
 
   /** Stops the current track with a quick fade-out. */
   stop(): void {
+    this.silence();
+    this.track = null;
+    this.requestedKey = null;
+  }
+
+  /** Mutes whatever is sounding (clip or voices) without forgetting the request. */
+  private silence(): void {
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.clipUrl) {
+      this.clipUrl = null;
+      this.audio?.pause();
     }
     if (this.bus && this.ctx) {
       const bus = this.bus;
@@ -170,7 +271,14 @@ export class SynthEngine {
       setTimeout(() => bus.disconnect(), 300);
     }
     this.bus = null;
-    this.track = null;
+  }
+
+  /** The track reached its end: unload it so the same song can be started again. */
+  private finish(): void {
+    if (this.endedFired) return;
+    this.endedFired = true;
+    this.stop();
+    this.onEnded?.();
   }
 
   setVolume(volume: number): void {
@@ -188,6 +296,11 @@ export class SynthEngine {
   dispose(): void {
     this.stop();
     this.onEnded = null;
+    if (this.audio) {
+      this.audio.removeAttribute("src");
+      this.audio.load();
+    }
+    this.audio = null;
     if (this.ctx) void this.ctx.close();
     this.ctx = null;
     this.tone = null;
@@ -201,7 +314,9 @@ export class SynthEngine {
   private applyTone(): void {
     if (!this.tone || !this.ctx) return;
     const energy = this.track?.energy ?? 0.5;
-    const cutoff = (1400 + energy * 6000) * (this.night ? 0.3 : 1);
+    // A real recording is left untouched; the synth gets brighter with the song's energy
+    const open = this.clipUrl ? 18000 : 1400 + energy * 6000;
+    const cutoff = open * (this.night ? 0.3 : 1);
     this.tone.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 0.2);
   }
 
@@ -226,12 +341,7 @@ export class SynthEngine {
       this.step++;
     }
 
-    if (!this.endedFired && this.position >= PREVIEW_SECONDS) {
-      this.endedFired = true;
-      // Unload the track so the same song can be started again
-      this.stop();
-      this.onEnded?.();
-    }
+    if (this.position >= PREVIEW_SECONDS) this.finish();
   }
 
   private playStep(track: Track, step: number, time: number, stepDuration: number): void {
