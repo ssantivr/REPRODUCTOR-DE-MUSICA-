@@ -156,6 +156,50 @@ export class DoublyLinkedList<T> {
   }
 
   /**
+   * Moves the node at `from` so it ends up at `to`, only by relinking `prev` /
+   * `next`: no node is created or destroyed, so the cursor keeps pointing to
+   * the same song. Returns false when either position does not exist.
+   */
+  move(from: number, to: number): boolean {
+    if (!Number.isInteger(to) || to < 0 || to >= this.length) return false;
+    const node = this.traverseToIndex(from);
+    if (node === null) return false;
+    if (from === to) return true;
+
+    // Work on a linear chain; sealEnds() restores the circular links at the end
+    if (this.tail !== null) this.tail.next = null;
+    if (this.head !== null) this.head.prev = null;
+
+    // 1. Unlink the node: its neighbors now point to each other
+    if (node.prev !== null) node.prev.next = node.next;
+    else this.head = node.next;
+    if (node.next !== null) node.next.prev = node.prev;
+    else this.tail = node.prev;
+    this.length--;
+
+    // 2. The node that now sits at `to` becomes its follower (null = goes last)
+    const follower = this.traverseToIndex(to);
+    this.length++;
+
+    // 3. Link it back: leader ⇄ node ⇄ follower
+    if (follower === null) {
+      node.prev = this.tail;
+      node.next = null;
+      if (this.tail !== null) this.tail.next = node;
+      this.tail = node;
+    } else {
+      node.prev = follower.prev;
+      node.next = follower;
+      if (follower.prev !== null) follower.prev.next = node;
+      else this.head = node;
+      follower.prev = node;
+    }
+
+    this.sealEnds();
+    return true;
+  }
+
+  /**
    * Returns the node at `index`, or null when the index is invalid.
    * Walks forward from the head for the first half and backward from the
    * tail for the second half, so the worst case is O(n/2).
