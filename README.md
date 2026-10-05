@@ -77,7 +77,7 @@ La pantalla tiene cuatro zonas:
   *Al final*, o reprodúcelas de inmediato.
 - **Constelación (panel derecho):** la lista en orden, con *Recorrer*, *Mezclar*,
   *Viajar a esa estrella*, quitar canciones y exportar / importar. Cada estrella se puede
-  **arrastrar** para cambiarla de posición y tiene un botón para ponerla **en la cola**. Arriba
+  **arrastrar** desde su tirador (con el ratón o con el dedo) para cambiarla de posición y tiene un botón para ponerla **en la cola**. Arriba
   se elige la **galaxia** (lista de reproducción) y hay cuatro pestañas: *Constelación*,
   *Cola*, *Recientes* y *Top* (las más escuchadas y las favoritas).
 - **Reproductor (abajo):** carátula, corazón de favorita, anterior, reproducir / pausar,

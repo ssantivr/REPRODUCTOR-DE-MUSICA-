@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Song, Track } from "@/types/music";
 import type { HistoryEntry } from "@/lib/PlaybackHistory";
@@ -59,6 +69,16 @@ interface ConstellationPanelProps {
 }
 
 type Tab = "constellation" | "queue" | "history" | "top";
+
+/** Finger this close to the top or bottom edge of the list scrolls it while dragging. */
+const AUTOSCROLL_EDGE_PX = 48;
+const AUTOSCROLL_STEP_PX = 14;
+
+/** Position of the star under a point of the screen, or null when there is none. */
+function rowIndexAt(x: number, y: number): number | null {
+  const row = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-row-index]");
+  return row ? Number(row.dataset.rowIndex) : null;
+}
 type GalaxyAction = "create" | "rename" | "delete" | null;
 
 function timeAgo(timestamp: number, now: number): string {
@@ -83,6 +103,10 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
   const [overIndex, setOverIndex] = useState<number | null>(null);
   // The drop must know the dragged row even if it arrives before the next render
   const dragIndexRef = useRef<number | null>(null);
+  // Touch screens have no native drag and drop: the grip follows the finger with pointer events
+  const [touchDrag, setTouchDrag] = useState(false);
+  const touchTargetRef = useRef<number | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
   const currentRef = useRef<HTMLLIElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const uidsInList = useMemo(() => new Set(tracks.map((track) => track.uid)), [tracks]);
@@ -129,8 +153,44 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
 
   const endDrag = () => {
     dragIndexRef.current = null;
+    touchTargetRef.current = null;
     setDragIndex(null);
     setOverIndex(null);
+    setTouchDrag(false);
+  };
+
+  const startTouchDrag = (event: ReactPointerEvent<HTMLButtonElement>, index: number) => {
+    if (event.pointerType === "mouse") return; // the mouse uses native drag and drop
+    // Captured: the grip keeps receiving the finger even when it leaves the button
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragIndexRef.current = index;
+    touchTargetRef.current = index;
+    setDragIndex(index);
+    setOverIndex(index);
+    setTouchDrag(true);
+  };
+
+  const moveTouchDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (touchTargetRef.current === null) return; // no finger is dragging
+    const list = listRef.current;
+    if (list) {
+      const { top, bottom } = list.getBoundingClientRect();
+      if (event.clientY < top + AUTOSCROLL_EDGE_PX) list.scrollTop -= AUTOSCROLL_STEP_PX;
+      else if (event.clientY > bottom - AUTOSCROLL_EDGE_PX) list.scrollTop += AUTOSCROLL_STEP_PX;
+    }
+    // Between two stars or outside the list the last star touched stays as the target
+    const over = rowIndexAt(event.clientX, event.clientY);
+    if (over === null || over === touchTargetRef.current) return;
+    touchTargetRef.current = over;
+    setOverIndex(over);
+  };
+
+  const dropTouchDrag = () => {
+    if (touchTargetRef.current === null) return;
+    const from = dragIndexRef.current;
+    const to = touchTargetRef.current;
+    if (from !== null && to !== null && from !== to) props.onMove(from, to);
+    endDrag();
   };
 
   const tabs: [Tab, string][] = [
@@ -274,7 +334,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
             </button>
           </form>
 
-          <ol className="scroll-thin -mr-2 flex-1 overflow-y-auto pr-2">
+          <ol ref={listRef} className="scroll-thin -mr-2 flex-1 overflow-y-auto pr-2">
             <AnimatePresence initial={false}>
               {tracks.map((track, index) => {
                 const isCurrent = index === currentIndex;
@@ -284,6 +344,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
                   <motion.li
                     key={track.uid}
                     ref={isCurrent ? currentRef : undefined}
+                    data-row-index={index}
                     layout
                     initial={{ opacity: 0, scale: 0.85, filter: "blur(4px)" }}
                     animate={{ opacity: visible[index] || isCurrent ? 1 : 0.35, scale: 1, filter: "blur(0px)" }}
@@ -300,6 +361,11 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
                       badges={[index === 0 && "Inicio", index === tracks.length - 1 && "Final"]}
                       dragging={dragIndex === index}
                       dropEdge={dropEdge}
+                      nativeDrag={!touchDrag}
+                      onGripDown={(event) => startTouchDrag(event, index)}
+                      onGripMove={moveTouchDrag}
+                      onGripUp={dropTouchDrag}
+                      onGripCancel={endDrag}
                       onPlay={() => props.onPlayAt(index)}
                       onRemove={() => props.onRemove(index)}
                       onEnqueue={() => props.onEnqueue(index)}
@@ -470,6 +536,12 @@ interface StarRowProps {
   badges: (string | false)[];
   dragging: boolean;
   dropEdge: "above" | "below" | null;
+  /** False while a finger drags: a long press must not start the browser's own drag */
+  nativeDrag: boolean;
+  onGripDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onGripMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onGripUp: () => void;
+  onGripCancel: () => void;
   onPlay: () => void;
   onRemove: () => void;
   onEnqueue: () => void;
@@ -492,7 +564,7 @@ function StarRow(props: StarRowProps) {
 
   return (
     <div
-      draggable
+      draggable={props.nativeDrag}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
       onDrop={props.onDrop}
@@ -510,9 +582,15 @@ function StarRow(props: StarRowProps) {
       )}
       <button
         onKeyDown={handleGripKey}
+        onPointerDown={props.onGripDown}
+        onPointerMove={props.onGripMove}
+        onPointerUp={props.onGripUp}
+        onPointerCancel={props.onGripCancel}
+        onContextMenu={(event) => event.preventDefault()}
         title="Arrastra para mover · con el teclado: flechas arriba y abajo"
         aria-label={`Mover «${track.title}», posición ${position}`}
-        className="-mx-1 shrink-0 cursor-grab rounded p-0.5 text-white/25 transition hover:text-white/70 focus-visible:text-white active:cursor-grabbing"
+        // touch-none: a finger on the grip drags the star instead of scrolling the list
+        className="-my-1.5 -ml-2 -mr-1.5 shrink-0 cursor-grab touch-none select-none rounded p-2 text-white/25 transition hover:text-white/70 focus-visible:text-white active:cursor-grabbing"
       >
         <GripIcon width={12} height={12} />
       </button>
