@@ -18,11 +18,15 @@ universo interactivo.
 - [Cómo se usa](#cómo-se-usa)
 - [Lista doblemente enlazada](#lista-doblemente-enlazada-srclibdoublylinkedlistts)
 - [Pila: deshacer y rehacer](#pila-deshacer-y-rehacer-srclibstackts)
+- [Cola: reproducir después](#cola-reproducir-después-srclibqueuets)
+- [Montículo: las más escuchadas](#montículo-las-más-escuchadas-srclibheapts)
 - [Índice secundario](#índice-secundario-srclibmusicindexts)
 - [Diagnóstico y prueba de estrés](#diagnóstico-y-prueba-de-estrés)
 - [Modelo de datos](#modelo-de-datos-srctypesmusicts)
 - [Búsqueda](#búsqueda-srclibsearch)
 - [Reproducción](#reproducción)
+- [Letra](#letra)
+- [Galaxias, favoritas y guardado](#galaxias-favoritas-y-guardado)
 - [Modos visuales](#modos-visuales-teclas-1-4)
 - [Exportar e importar](#exportar-e-importar)
 - [Estructura](#estructura)
@@ -33,8 +37,8 @@ universo interactivo.
 ## Requisitos
 
 - **Node.js 18.17 o superior** (lo exige Next.js 14) y npm.
-- Conexión a internet solo para la búsqueda global y los reproductores de YouTube / Spotify.
-  El catálogo local y el sintetizador funcionan sin conexión.
+- Conexión a internet para la búsqueda global, el audio real, las carátulas, la letra y los
+  reproductores de YouTube / Spotify. El catálogo local y el sintetizador funcionan sin conexión.
 
 ## Ejecutar
 
@@ -72,9 +76,15 @@ La pantalla tiene cuatro zonas:
 - **Buscar (panel izquierdo):** busca canciones y agrégalas *Al inicio*, *En posición N* o
   *Al final*, o reprodúcelas de inmediato.
 - **Constelación (panel derecho):** la lista en orden, con *Recorrer*, *Mezclar*,
-  *Viajar a esa estrella*, quitar canciones, exportar / importar y la pestaña *Recientes*.
-- **Reproductor (abajo):** anterior, reproducir / pausar, siguiente, repetir, aleatorio,
-  volumen y la fuente de reproducción (Sintetizador, YouTube o Spotify).
+  *Viajar a esa estrella*, quitar canciones y exportar / importar. Cada estrella se puede
+  **arrastrar** para cambiarla de posición y tiene un botón para ponerla **en la cola**. Arriba
+  se elige la **galaxia** (lista de reproducción) y hay cuatro pestañas: *Constelación*,
+  *Cola*, *Recientes* y *Top* (las más escuchadas y las favoritas).
+- **Reproductor (abajo):** carátula, corazón de favorita, anterior, reproducir / pausar,
+  siguiente, repetir, aleatorio, barra de progreso en la que se puede hacer clic o arrastrar
+  para saltar, volumen y la fuente de reproducción (Audio, Sinte, YouTube o Spotify).
+
+El botón **Letra** (o la tecla `L`) muestra la letra de la canción actual (ver [Letra](#letra)).
 
 El botón **Filtros** muestra solo ciertos géneros o rangos de energía y tempo; las canciones
 filtradas quedan como contornos tenues y no se pueden seleccionar.
@@ -82,7 +92,9 @@ filtradas quedan como contornos tenues y no se pueden seleccionar.
 El botón **Diagnóstico** (o la tecla `D`) abre un panel con las métricas en vivo de la lista
 y la prueba de estrés (ver [Diagnóstico y prueba de estrés](#diagnóstico-y-prueba-de-estrés)).
 
-**Atajos:** `Espacio` reproducir/pausar · `←` / `→` anterior/siguiente · `1-4` modos visuales · `D` diagnóstico · `Ctrl+Z` deshacer · `Ctrl+Y` rehacer.
+**Atajos:** `Espacio` reproducir/pausar · `←` / `→` anterior/siguiente · `1-4` modos visuales · `D` diagnóstico · `L` letra · `Ctrl+Z` deshacer · `Ctrl+Y` rehacer.
+Con el foco en el tirador de una estrella, `↑` / `↓` la mueven una posición. Las teclas
+multimedia del teclado y los controles del sistema también funcionan (ver [Reproducción](#reproducción)).
 No se activan mientras escribes en un campo; los demás atajos con Ctrl, Alt o Cmd se dejan
 al navegador.
 
@@ -103,6 +115,7 @@ Cada nodo guarda un valor (la canción) y dos punteros, `prev` y `next`. La list
 | `traverseToIndex(index)` | Llega al nodo desde `head` (con `next`) o desde `tail` (con `prev`), según la mitad | O(n/2) |
 | `insertAt(index, value)` | Enlaza el nodo entre `index-1` e `index` | O(n/2) |
 | `removeAt(index)` | Re-enlaza los vecinos y desconecta el nodo | O(n/2) |
+| `move(from, to)` | Cambia un nodo de posición solo re-enlazando `prev` / `next`; no crea ni destruye nodos | O(n/2) |
 | `next()` / `prev()` | Mueven el cursor `current` por los punteros `next` / `prev` | O(1) |
 | `moveTo(index)` | Coloca el cursor en una posición usando `traverseToIndex` | O(n/2) |
 | `setCircular(bool)` | Modo repetir: enlaza `tail.next = head` y `head.prev = tail` (lista circular) | O(1) |
@@ -130,6 +143,7 @@ Cómo se conecta cada acción de la interfaz con la lista:
 | Clic en una partícula · "Viajar a esa estrella" | `moveTo` → `traverseToIndex` |
 | "Al inicio" / "En posición N" / "Al final" | `prepend` / `insertAt` / `append` |
 | Quitar una estrella | `removeAt` (si era la actual, suena su vecina) |
+| Arrastrar una estrella a otra posición | `move` (el cursor sigue en la misma canción) |
 | "Recorrer" | `printList` + un cometa que ilumina la constelación de inicio a fin |
 | *Repetir* | `setCircular` (un arco punteado une el final con el inicio) |
 | *Aleatorio* | `jumpRandom` en cada "Siguiente" |
@@ -158,7 +172,7 @@ que `push`, `pop` y `peek` son O(1). Con capacidad, al llenarse descarta la entr
 antigua desde `head`, también en O(1).
 
 `usePlaylist` mantiene **dos pilas** de hasta 30 pasos. Antes de cada cambio de estructura
-(agregar, quitar, mezclar o importar) guarda el orden de la lista en la pila de deshacer:
+(agregar, quitar, mover, mezclar o importar) guarda el orden de la lista en la pila de deshacer:
 
 | Acción | Pila de deshacer | Pila de rehacer |
 |---|---|---|
@@ -169,6 +183,38 @@ antigua desde `head`, también en O(1).
 También hay botones de deshacer y rehacer en el panel de la constelación. Al restaurar, la
 canción que está sonando sigue sonando si todavía existe en la lista. La navegación, el modo
 repetir y el modo aleatorio no se registran: solo los cambios de estructura.
+
+## Cola: reproducir después (`src/lib/Queue.ts`)
+
+`Queue<T>` es una cola genérica (FIFO) construida sobre la lista doble: se entra por `tail` y
+se sale por `head`, así que `enqueue`, `dequeue` y `peek` son O(1).
+
+| Acción en la app | Operación de la cola |
+|---|---|
+| Botón de cola de una estrella | `enqueue`: la canción toma el último turno |
+| *Siguiente* (o termina la canción) con la cola ocupada | `dequeue`: suena la que entró primero, antes que el orden normal |
+| Quitar un turno desde la pestaña *Cola* | `removeAt` |
+| Se quita de la constelación una canción que estaba en la cola | `retain`: pierde su turno |
+
+La cola guarda canciones de la constelación, no copias: al salir de la cola el cursor de la
+lista viaja a esa estrella con `moveTo`. Cambiar de galaxia vacía la cola.
+
+## Montículo: las más escuchadas (`src/lib/Heap.ts`)
+
+`Heap<T>` es un montículo binario (cola de prioridad) guardado en un arreglo: los hijos de la
+posición `i` están en `2i + 1` y `2i + 2`, y el de mayor prioridad siempre está en la posición 0.
+
+| Método | Qué hace | Complejidad |
+|---|---|---|
+| `new Heap(compare, valores)` | Construye el montículo hundiendo la mitad superior (Floyd) | O(n) |
+| `push(value)` | Agrega al final y lo hace flotar hasta su lugar | O(log n) |
+| `pop()` | Saca el de mayor prioridad y hunde el último en su lugar | O(log n) |
+| `peek()` | Consulta el de mayor prioridad | O(1) |
+| `topK(valores, k, compare)` | Los `k` mejores: construye el montículo y saca `k` veces | O(n + k log n) |
+
+La pestaña *Top* usa `topK` para mostrar las **cinco canciones más escuchadas** sin ordenar
+todo el registro: gana la que tiene más reproducciones y, si empatan, la escuchada más
+recientemente. Pausar y reanudar cuenta como una sola reproducción.
 
 ## Índice secundario (`src/lib/MusicIndex.ts`)
 
@@ -224,23 +270,26 @@ canción pueda estar varias veces en la lista sin confundir sus nodos.
 | `key` | Tonalidad: 0 = Do, 1 = Do#, …, 11 = Si |
 | `durationSec` | Duración en segundos |
 | `youtubeId`, `spotifyId` | Opcionales: video y pista vinculados |
+| `previewUrl`, `artworkUrl` | Opcionales: fragmento de audio real de 30 s y carátula del álbum |
 
-El catálogo local (`src/lib/catalog.ts`) tiene **28 canciones**; la lista arranca con las 10
-primeras. `src/lib/songSchema.ts` valida cualquier canción que llegue de fuera (peticiones a
+El catálogo local (`src/lib/catalog.ts`) tiene **28 canciones**; la primera vez la lista arranca
+con las 10 primeras y después con lo que quedó guardado
+(ver [Galaxias, favoritas y guardado](#galaxias-favoritas-y-guardado)). `src/lib/songSchema.ts` valida cualquier canción que llegue de fuera (peticiones a
 la API o archivos importados).
 
 ## Búsqueda (`src/lib/search/`)
 
 1. `GET /api/search?q=` → **catálogo local**; si hay menos de 3 coincidencias, agrega
    canciones globales de **Spotify** (con credenciales) o de **iTunes Search** (sin clave):
-   título, artista, año, género y duración reales.
+   título, artista, año, género y duración reales, más el fragmento de audio y la carátula.
 2. Cada canción externa se convierte con `songFactory.createSong` en un objeto con
    **exactamente la misma forma** que las canciones del catálogo (`Song`).
 3. Al agregarla, `POST /api/resolve` vincula su **video de YouTube** (API si hay clave; si no,
    la página pública de resultados) verificado con oEmbed, y su **pista de Spotify** si hay
    credenciales. Luego entra a la lista y aparece como partícula con un anillo expansivo.
 4. Las canciones del catálogo sin video se vinculan igual la primera vez que se abren en
-   YouTube/Spotify.
+   YouTube/Spotify. Su fragmento de audio y su carátula se buscan en iTunes la primera vez
+   que suenan con la fuente *Audio* (`POST /api/resolve` con `scope: "media"`).
 5. Si nada coincide o no hay conexión: canciones simuladas.
 
 Nunca lanza errores hacia la interfaz. Como Spotify ya no expone atributos de audio a apps
@@ -252,7 +301,11 @@ entradas) y cada petición a un proveedor tiene un límite de 6 segundos.
 
 ## Reproducción
 
-- **Sintetizador (Web Audio API):** no reproduce archivos; genera una vista previa de 45 s a
+- **Audio (fuente inicial):** reproduce el **fragmento real de 30 s** de la canción que publica
+  iTunes. Pasa por el mismo grafo de Web Audio que el sintetizador, así que también alimenta
+  el anillo espectral del canvas. Si una canción no tiene fragmento o no se puede cargar,
+  suena sintetizada.
+- **Sinte (Web Audio API):** no reproduce archivos; genera una vista previa de 45 s a
   partir del tempo, la tonalidad, la energía, la valencia y el género. Alimenta el anillo
   espectral del canvas. Al terminar pasa a la siguiente canción.
 - **YouTube:** reproductor incrustado; reproducir / pausar se controla desde la app.
@@ -261,6 +314,42 @@ entradas) y cada petición a un proveedor tiene un límite de 6 segundos.
 
 Si una canción no tiene video o pista vinculada, la app la busca una vez y, si no la
 encuentra, ofrece un enlace para buscarla en la plataforma.
+
+Con las fuentes *Audio* y *Sinte* la **barra de progreso** permite saltar a cualquier momento
+(clic o arrastre). La **carátula** aparece en el reproductor, en la lista, en los resultados
+de búsqueda y sobre la partícula de la canción que suena.
+
+**Controles del sistema (Media Session):** la app publica el título, el artista y la carátula
+y responde a reproducir, pausar, anterior, siguiente y saltar. El navegador solo muestra estos
+controles mientras suena un elemento de audio, es decir, con la fuente *Audio*; YouTube y
+Spotify usan los controles de su propio reproductor.
+
+## Letra
+
+El panel **Letra** (botón del encabezado o tecla `L`) consulta `GET /api/lyrics`, que busca en
+[LRCLIB](https://lrclib.net) (público, sin clave) y prefiere la versión del artista correcto,
+con letra sincronizada y con la duración más parecida. `src/lib/lyrics.ts` convierte el formato
+LRC (`[mm:ss.xx] verso`) en líneas con su tiempo.
+
+Con la fuente **YouTube** la letra sincronizada avanza con la canción: el reproductor
+incrustado informa su posición y la línea que se está cantando se localiza con **búsqueda
+binaria** (`activeLineIndex`, O(log n)). Con *Audio* y *Sinte* la letra se muestra completa sin
+resaltar, porque el fragmento de 30 s empieza en un punto desconocido de la canción. Un video
+con introducción propia puede ir desfasado respecto a la letra.
+
+## Galaxias, favoritas y guardado
+
+- **Galaxias:** son listas de reproducción con nombre (hasta 12). Solo la activa vive en la
+  lista doblemente enlazada; las demás esperan guardadas como `toJSON()` y se cargan con
+  `importJSON()` al cambiar. Se crean, renombran y eliminan desde el panel de la constelación;
+  cambiar de galaxia detiene la reproducción y reinicia deshacer / rehacer y la cola.
+- **Favoritas:** el corazón del reproductor marca la canción actual. Se guardan por canción,
+  así que valen en todas las galaxias, y se listan en la pestaña *Top*.
+- **Guardado automático** (`src/hooks/useLibrary.ts`): las galaxias con su orden, su cursor y
+  su modo repetir, las favoritas y el conteo de reproducciones se guardan en el navegador
+  (`localStorage`) un instante después de cada cambio, y se recuperan al abrir la app. También
+  se recuerdan el volumen, la fuente y el modo visual. Todo queda en ese navegador: para
+  llevar una lista a otro equipo se usa exportar / importar.
 
 ## Modos visuales (teclas 1-4)
 
@@ -287,22 +376,25 @@ sentido de `next`. Al pausar, todo vuelve suavemente al reposo.
 
 "Exportar constelación" descarga un archivo `constelacion-AAAA-MM-DD.json` con todas las
 canciones en orden, la posición del cursor y el modo repetir. "Importar constelación"
-reemplaza la lista actual por la del archivo; las canciones inválidas se omiten y un archivo
+reemplaza la lista de la galaxia activa por la del archivo; las canciones inválidas se omiten y un archivo
 con otro formato se rechaza con un aviso.
 
 ## Estructura
 
 ```
 src/
-  app/                 layout, página, estilos y APIs /api/search y /api/resolve
+  app/                 layout, página, estilos y APIs /api/search, /api/resolve y /api/lyrics
   components/          MusicUniverse (orquestador), UniverseCanvas, ConstellationPanel,
-                       SearchPanel, FilterPanel, DiagnosticsPanel, PlayerDock, EmbedPlayer, EventToast,
-                       ModeSwitcher, icons
-  hooks/               usePlaylist, useMediaQuery
+                       SearchPanel, FilterPanel, DiagnosticsPanel, LyricsPanel, PlayerDock,
+                       EmbedPlayer, EventToast, ModeSwitcher, icons
+  hooks/               usePlaylist, useLibrary (galaxias, favoritas y guardado), useMediaQuery
   lib/
     DoublyLinkedList.ts
     PlaybackHistory.ts
     Stack.ts           pila sobre la lista doble (deshacer / rehacer)
+    Queue.ts           cola sobre la lista doble (reproducir después)
+    Heap.ts            montículo binario (las más escuchadas)
+    lyrics.ts          letra desde LRCLIB y lectura del formato LRC
     MusicIndex.ts      tabla hash + árbol binario de búsqueda (índice secundario)
     ListMetrics.ts     medición en vivo de las operaciones de la lista
     stressTest.ts      prueba de estrés y verificación de punteros
@@ -320,8 +412,9 @@ scripts/demo-dll.ts    pruebas de la lista y del historial
 ```bash
 npm run demo:dll     # lista doble e historial: inserción, borrado, recorridos, modo
                      # circular, mezcla, exportar / importar, iteración nativa,
-                     # prueba de estrés de 500 nodos con sus métricas, pila
-                     # (deshacer / rehacer), tabla hash, árbol e índice
+                     # mover nodos, prueba de estrés de 500 nodos con sus métricas,
+                     # pila (deshacer / rehacer), cola, montículo, letra en formato
+                     # LRC, tabla hash, árbol e índice
 npm run typecheck    # tipos de todo el proyecto
 ```
 
@@ -332,6 +425,16 @@ falla, la marca con `✘` y sale con código 1.
 
 ### Funciones nuevas
 
+- **Audio real:** la fuente *Audio* reproduce el fragmento de 30 s de iTunes, con el
+  sintetizador como respaldo.
+- **Carátulas:** en el reproductor, la lista, la búsqueda y la partícula actual.
+- **Letra:** panel con la letra de LRCLIB; sincronizada con la canción en la fuente YouTube.
+- **Reordenar arrastrando:** `move(from, to)` cambia un nodo de lugar solo re-enlazando punteros.
+- **Cola "reproducir después":** una cola FIFO (`Queue`) sobre la lista doble.
+- **Top y favoritas:** las cinco más escuchadas salen de un montículo (`Heap`).
+- **Galaxias:** varias listas de reproducción con nombre.
+- **Guardado automático:** listas, favoritas, conteos y preferencias sobreviven al recargar.
+- **Barra de progreso con salto** y **controles multimedia del sistema**.
 - **Deshacer / rehacer:** una pila (`Stack`) registra agregar, quitar, mezclar e importar;
   `Ctrl+Z` / `Ctrl+Y` o los botones del panel de la constelación.
 - **Índice secundario:** tablas hash por género y artista y un árbol binario de búsqueda por
@@ -380,8 +483,12 @@ falla, la marca con `✘` y sale con código 1.
 
 ## Problemas frecuentes
 
-- **El sintetizador no suena:** el navegador solo permite audio después de una interacción;
-  pulsa reproducir o haz clic en una partícula.
+- **No suena nada:** el navegador solo permite audio después de una interacción; pulsa
+  reproducir o haz clic en una partícula.
+- **Una canción suena sintetizada con la fuente *Audio*:** iTunes no tiene un fragmento de esa
+  canción o no hay conexión.
+- **Quiero empezar de cero:** borra los datos del sitio en el navegador; la app vuelve a la
+  lista inicial.
 - **El puerto 3000 está ocupado:** Next.js usa el siguiente libre (3001, …) y lo indica en la
   terminal.
 - **Una canción dice que no tiene video o pista vinculada:** no se encontró un video que
