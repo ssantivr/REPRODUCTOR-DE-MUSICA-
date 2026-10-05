@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Instalar dependencias",
+      "type": "shell",
+      "command": "npm install",
+      "problemMatcher": []
+    },
+    {
+      "label": "Iniciar Universo Musical (dev)",
+      "type": "shell",
+      "command": "npm run dev",
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": {
+        "owner": "nextjs",
+        "pattern": { "regexp": "^x^" },
+        "background": {
+          "activesBegin": "^x^",
+          "beginsPattern": "next dev|Starting",
+          "endsPattern": "Ready in|Local:"
+        }
+      }
+    },
+    {
+      "label": "Pruebas de la lista doble",
+      "type": "shell",
+      "command": "npm run demo:dll",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Compilar (build)",
+      "type": "shell",
+      "command": "npm run build",
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}

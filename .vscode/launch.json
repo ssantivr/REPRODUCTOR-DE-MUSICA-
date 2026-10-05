@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Universo Musical: abrir en el navegador",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "serverReadyAction": {
+        "pattern": "- Local:.+(https?://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
+    },
+    {
+      "name": "Pruebas de la lista doble",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run demo:dll"
+    }
+  ]
+}
