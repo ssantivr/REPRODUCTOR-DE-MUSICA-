@@ -3,9 +3,12 @@
  * Run with:  npm run demo:dll
  */
 import { DoublyLinkedList } from "../src/lib/DoublyLinkedList";
+import { Heap, topK } from "../src/lib/Heap";
 import { ListMetrics, MEASURED_OPERATIONS, THEORETICAL_COMPLEXITY } from "../src/lib/ListMetrics";
 import { BinarySearchTree, HashTable, MusicIndex } from "../src/lib/MusicIndex";
+import { activeLineIndex, parseLrc } from "../src/lib/lyrics";
 import { PlaybackHistory } from "../src/lib/PlaybackHistory";
+import { Queue } from "../src/lib/Queue";
 import { Stack } from "../src/lib/Stack";
 import { CATALOG } from "../src/lib/catalog";
 import { DEFAULT_FILTER, matchesFilter, type SpatialFilter } from "../src/lib/spatialFilter";
@@ -99,6 +102,20 @@ checkPointers(playlist, "circular chain is intact after shuffle");
 const jumped = playlist.jumpRandom(mulberry32(1));
 check("jumpRandom lands on a different node", jumped !== null && jumped !== cursorBefore);
 
+console.log("\n== move (reorder by relinking) ==");
+const order = new DoublyLinkedList(["A", "B", "C", "D", "E"]);
+const nodeB = order.moveTo(1);
+check("move(1, 3) → A, C, D, B, E", order.move(1, 3) && order.toArray().join() === "A,C,D,B,E");
+check("no node is created: the cursor still points to the moved node", order.current === nodeB && order.length === 5);
+checkPointers(order, "chain is intact after moving forward");
+check("move(3, 0) puts it first → B, A, C, D, E", order.move(3, 0) && order.head === nodeB && order.toArray().join() === "B,A,C,D,E");
+check("move(0, 4) puts it last → A, C, D, E, B", order.move(0, 4) && order.tail === nodeB && order.toArray().join() === "A,C,D,E,B");
+checkPointers(order, "chain is intact after moving to both ends");
+check("invalid positions are rejected and change nothing", !order.move(9, 0) && !order.move(0, 5) && !order.move(-1, 2) && order.toArray().join() === "A,C,D,E,B");
+order.setCircular(true);
+check("move works in circular mode → B, A, C, D, E", order.move(4, 0) && order.toArray().join() === "B,A,C,D,E");
+checkPointers(order, "circular links survive a move");
+
 console.log("\n== JSON export / import ==");
 const snapshot = JSON.parse(JSON.stringify(playlist.toJSON()));
 const rebuilt = DoublyLinkedList.fromJSON<string>(snapshot, (raw) => (typeof raw === "string" ? raw : null));
@@ -162,6 +179,40 @@ check("undo restores the previous state", state.join() === "x");
 undoStack.push(state);
 state = redoStack.pop() ?? state;
 check("redo re-applies the change", state.join() === "x,y" && redoStack.isEmpty);
+
+console.log("\n== queue (FIFO, play next) ==");
+const queue = new Queue<string>();
+check("empty queue: dequeue and peek → null", queue.dequeue() === null && queue.peek() === null && queue.isEmpty);
+["a", "b", "c", "d"].forEach((item) => queue.enqueue(item));
+check("first in, first out", queue.peek() === "a" && queue.dequeue() === "a" && queue.dequeue() === "b" && queue.size === 2);
+queue.enqueue("e");
+check("removeAt takes a value out before its turn", queue.removeAt(1) === "d" && queue.toArray().join() === "c,e");
+queue.enqueue("f");
+queue.retain((item) => item !== "e");
+check("retain drops values and keeps the order of the rest", queue.toArray().join() === "c,f");
+
+console.log("\n== heap (priority queue, most played) ==");
+const heap = new Heap<number>((a, b) => a - b, [5, 1, 9, 3, 7]);
+check("the biggest value is on top", heap.peek() === 9 && heap.size === 5);
+heap.push(12);
+heap.push(4);
+const drained: number[] = [];
+while (!heap.isEmpty) drained.push(heap.pop() as number);
+check("pop returns the values from biggest to smallest", drained.join() === "12,9,7,5,4,3,1" && heap.pop() === null);
+const randomValues = Array.from({ length: 200 }, (_, i) => (i * 7919) % 1009);
+check(
+  "topK matches sorting everything",
+  topK(randomValues, 5, (a, b) => a - b).join() === [...randomValues].sort((a, b) => b - a).slice(0, 5).join(),
+);
+check("topK with fewer values than k returns them all", topK([2, 8], 5, (a, b) => a - b).join() === "8,2");
+
+console.log("\n== synced lyrics (LRC) ==");
+const lrc = parseLrc("[00:12.50] second\n[00:05.00] first\nno timestamp\n[01:02.00]\n[01:10.25] last");
+check("lines are parsed and sorted by time", lrc.map((line) => line.time).join() === "5,12.5,62,70.25" && lrc[0].text === "first" && lrc[2].text === "");
+check(
+  "the active line is found by binary search",
+  activeLineIndex(lrc, 0) === -1 && activeLineIndex(lrc, 5) === 0 && activeLineIndex(lrc, 61.9) === 1 && activeLineIndex(lrc, 999) === 3,
+);
 
 console.log("\n== secondary index (hash table + BST) ==");
 const table = new HashTable<number>(2);
