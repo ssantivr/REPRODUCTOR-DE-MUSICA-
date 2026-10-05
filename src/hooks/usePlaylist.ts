@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { DoublyLinkedList } from "@/lib/DoublyLinkedList";
+import { DoublyLinkedList, type SerializedList } from "@/lib/DoublyLinkedList";
 import { ListMetrics, instrumentList } from "@/lib/ListMetrics";
 import { PlaybackHistory, type HistoryEntry } from "@/lib/PlaybackHistory";
+import { Queue } from "@/lib/Queue";
 import { parseSong, toSong } from "@/lib/songSchema";
 import { Stack } from "@/lib/Stack";
-import type { InsertOperation, PlaylistEvent, PlaylistEventTone, Song, Track } from "@/types/music";
+import type { InsertOperation, PlaylistEvent, PlaylistEventTone, Song, SongBindings, Track } from "@/types/music";
 
 const HISTORY_CAPACITY = 20;
 const UNDO_CAPACITY = 30;
@@ -108,6 +109,24 @@ export function usePlaylist(initialSongs: Song[]) {
     [list],
   );
 
+  // ---------------------------------------------------------------------------
+  // "Play next" queue (FIFO): songs of the list that jump ahead of the normal order
+  // ---------------------------------------------------------------------------
+
+  const queueRef = useRef<Queue<Track> | null>(null);
+  queueRef.current ??= new Queue<Track>();
+  const upNext = queueRef.current;
+  const [queue, setQueue] = useState<Track[]>([]);
+  const syncQueue = useCallback(() => setQueue(upNext.toArray()), [upNext]);
+
+  /** Queued songs that are no longer in the list lose their turn. */
+  const pruneQueue = useCallback(() => {
+    if (upNext.isEmpty) return;
+    const alive = new Set(list.toArray().map((track) => track.uid));
+    upNext.retain((track) => alive.has(track.uid));
+    syncQueue();
+  }, [list, upNext, syncQueue]);
+
   /** Pops a step from one stack, pushes the present onto the other and restores the step. */
   const travel = useCallback(
     (from: Stack<HistoryStep>, to: Stack<HistoryStep>, verb: string, emptyMessage: string): boolean => {
@@ -118,11 +137,12 @@ export function usePlaylist(initialSongs: Song[]) {
       }
       to.push(capture(step.label));
       restore(step);
+      pruneQueue();
       notify("traverse", `${verb}: ${step.label}`);
       commit();
       return true;
     },
-    [capture, restore, notify, commit],
+    [capture, restore, pruneQueue, notify, commit],
   );
 
   const undo = useCallback(() => travel(undoStack, redoStack, "Deshecho", "No hay nada que deshacer"), [travel, undoStack, redoStack]);
@@ -134,6 +154,17 @@ export function usePlaylist(initialSongs: Song[]) {
 
   /** Moves forward through `next`, or jumps randomly in shuffle mode. */
   const next = useCallback((): boolean => {
+    // Whoever waits in the queue goes before the normal order
+    while (!upNext.isEmpty) {
+      const queued = upNext.dequeue();
+      const index = queued ? list.toArray().findIndex((track) => track.uid === queued.uid) : -1;
+      const node = index >= 0 ? list.moveTo(index) : null;
+      if (!node) continue;
+      syncQueue();
+      notify("navigate", `De la cola: «${node.value.title}»`);
+      commit();
+      return true;
+    }
     if (shuffleRef.current && list.length > 1) {
       const node = list.jumpRandom();
       if (node) {
@@ -151,7 +182,7 @@ export function usePlaylist(initialSongs: Song[]) {
     notify("navigate", wraps ? `Fin del recorrido: de vuelta al inicio con «${node.value.title}»` : `Siguiente: «${node.value.title}»`);
     commit();
     return true;
-  }, [list, notify, commit]);
+  }, [list, upNext, syncQueue, notify, commit]);
 
   /** Moves backward through `prev`. */
   const prev = useCallback((): boolean => {
@@ -227,16 +258,62 @@ export function usePlaylist(initialSongs: Song[]) {
       if (!removed) return null; // nothing changed: skip the re-render
       step.label = `quitar «${removed.title}»`;
       checkpoint(step);
+      pruneQueue();
       notify("remove", `«${removed.title}» salió de la constelación`);
       commit();
       return removed;
     },
+    [list, notify, commit, capture, checkpoint, pruneQueue],
+  );
+
+  /** Moves a song to another position by relinking its node (no node is created). */
+  const move = useCallback(
+    (from: number, to: number): boolean => {
+      if (from === to) return false;
+      const step = capture("");
+      const title = step.tracks[from]?.title;
+      if (title === undefined || !list.move(from, to)) return false;
+      step.label = `mover «${title}»`;
+      checkpoint(step);
+      notify("traverse", `«${title}» pasó de la posición ${from + 1} a la ${to + 1}`);
+      commit();
+      return true;
+    },
     [list, notify, commit, capture, checkpoint],
   );
 
+  /** Adds the song at `index` to the back of the "play next" queue. */
+  const enqueue = useCallback(
+    (index: number): boolean => {
+      const track = list.traverseToIndex(index)?.value;
+      if (!track) return false;
+      upNext.enqueue(track);
+      syncQueue();
+      notify("add", `«${track.title}» entró a la cola en el turno ${upNext.size}`);
+      return true;
+    },
+    [list, upNext, syncQueue, notify],
+  );
+
+  /** Takes a song out of the queue before its turn. */
+  const unqueue = useCallback(
+    (position: number) => {
+      const track = upNext.removeAt(position);
+      if (!track) return;
+      syncQueue();
+      notify("remove", `«${track.title}» salió de la cola`);
+    },
+    [upNext, syncQueue, notify],
+  );
+
+  const clearQueue = useCallback(() => {
+    upNext.clear();
+    syncQueue();
+  }, [upNext, syncQueue]);
+
   /** Attaches playback bindings to every node holding the song with this uid. */
   const enrich = useCallback(
-    (uid: string, bindings: Pick<Song, "youtubeId" | "spotifyId">) => {
+    (uid: string, bindings: SongBindings) => {
       for (const node of list.nodes()) {
         if (node.value.uid === uid) node.value = { ...node.value, ...bindings };
       }
@@ -306,6 +383,7 @@ export function usePlaylist(initialSongs: Song[]) {
           return song ? toTrack(song, nextUid(song)) : null;
         });
         checkpoint(step);
+        pruneQueue();
         setRepeatState(list.circular);
         notify("add", `Constelación importada: ${count} ${count === 1 ? "estrella" : "estrellas"}`);
         commit();
@@ -315,7 +393,36 @@ export function usePlaylist(initialSongs: Song[]) {
         return false;
       }
     },
-    [list, notify, commit, nextUid, capture, checkpoint],
+    [list, notify, commit, nextUid, capture, checkpoint, pruneQueue],
+  );
+
+  /** Plain snapshot of the list (no notification): what gets saved in the browser. */
+  const serialize = useCallback((): SerializedList<Song> => list.toJSON(toSong), [list]);
+
+  /**
+   * Replaces the whole list with a saved snapshot. Unlike an import this is a
+   * change of playlist, not an edit: undo, redo and the queue start empty.
+   */
+  const load = useCallback(
+    (data: unknown, message?: string): boolean => {
+      try {
+        list.importJSON(data, (raw) => {
+          const song = parseSong(raw);
+          return song ? toTrack(song, nextUid(song)) : null;
+        });
+      } catch {
+        return false;
+      }
+      undoStack.clear();
+      redoStack.clear();
+      upNext.clear();
+      syncQueue();
+      setRepeatState(list.circular);
+      if (message) notify("traverse", message);
+      commit();
+      return true;
+    },
+    [list, undoStack, redoStack, upNext, syncQueue, notify, commit, nextUid],
   );
 
   // ---------------------------------------------------------------------------
@@ -360,9 +467,16 @@ export function usePlaylist(initialSongs: Song[]) {
     indexOfUid,
     add,
     remove,
+    move,
     enrich,
+    queue,
+    enqueue,
+    unqueue,
+    clearQueue,
     traverseAll,
     exportPlaylist,
     importPlaylist,
+    serialize,
+    load,
   };
 }
