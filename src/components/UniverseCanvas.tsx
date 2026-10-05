@@ -10,6 +10,7 @@ import { TAU, targetFor, type Area, type Particle, type Point } from "@/lib/univ
 import {
   buildCurves,
   paintBackground,
+  paintCover,
   paintCurrent,
   paintEnergyAxes,
   paintFilteredParticle,
@@ -80,6 +81,17 @@ export default function UniverseCanvas(props: UniverseCanvasProps) {
       phase: random() * TAU,
     }));
     const freq = new Uint8Array(128);
+    // Covers already requested, by URL; an image is painted once it has finished loading
+    const covers = new Map<string, HTMLImageElement>();
+    const coverFor = (url: string): HTMLImageElement | null => {
+      let image = covers.get(url);
+      if (!image) {
+        image = new Image();
+        image.src = url;
+        covers.set(url, image);
+      }
+      return image.complete && image.naturalWidth > 0 ? image : null;
+    };
     const particles = particlesRef.current;
     const mountedAt = performance.now() / 1000;
 
@@ -215,7 +227,11 @@ export default function UniverseCanvas(props: UniverseCanvasProps) {
         if (elapsed >= 0 && elapsed < total) paintTraversal(ctx, points, curves, elapsed, TRAVERSAL_STEP_SECONDS);
       }
 
-      if (currentIndex >= 0) paintCurrent(ctx, tracks[currentIndex], points[currentIndex], freq, t, night);
+      if (currentTrack) {
+        paintCurrent(ctx, currentTrack, points[currentIndex], freq, t, night);
+        const cover = currentTrack.artworkUrl ? coverFor(currentTrack.artworkUrl) : null;
+        if (cover) paintCover(ctx, cover, points[currentIndex]);
+      }
 
       // The current song stays clickable even when the filter hides its genre
       hitRef.current = points.map((point, index) => (visible[index] || index === currentIndex ? point : null));

@@ -27,7 +27,7 @@ function describe(response: SearchResponse): string {
   if (response.source === "local") return "Encontrado en tu catálogo";
   if (response.source === "simulated") return "Sin conexión con los servicios: datos simulados";
   const platforms = response.providers.spotify ? "YouTube y Spotify" : "YouTube";
-  return `Canciones nuevas: al agregarlas se conectan con ${platforms}`;
+  return `Canciones nuevas: traen su audio y carátula, y al agregarlas se conectan con ${platforms}`;
 }
 
 export default function SearchPanel({ currentIndex, length, accent, onAdd, onPlayNow }: SearchPanelProps) {
@@ -134,7 +134,11 @@ export default function SearchPanel({ currentIndex, length, accent, onAdd, onPla
                     disabled={disabled}
                     title="Reproducir ahora"
                     className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition group-hover:scale-110 disabled:opacity-50"
-                    style={{ background: genreColor(song.genre, 0.25), color: genreColor(song.genre) }}
+                    style={
+                      song.artworkUrl
+                        ? { background: `linear-gradient(rgba(5,3,15,0.45), rgba(5,3,15,0.45)), center / cover url("${song.artworkUrl}")`, color: "#fff" }
+                        : { background: genreColor(song.genre, 0.25), color: genreColor(song.genre) }
+                    }
                   >
                     <PlayIcon width={12} height={12} />
                   </button>
@@ -145,6 +149,7 @@ export default function SearchPanel({ currentIndex, length, accent, onAdd, onPla
                     </p>
                     <div className="mt-1 flex flex-wrap gap-1 text-[9px] uppercase tracking-wide">
                       <span className={`rounded px-1.5 py-0.5 ${badge.className}`}>{badge.label}</span>
+                      {song.previewUrl && <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-violet-300">Audio</span>}
                       {song.youtubeId && <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-300">Video</span>}
                       {song.spotifyId && <span className="rounded bg-green-500/15 px-1.5 py-0.5 text-green-300">Pista</span>}
                     </div>

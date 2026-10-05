@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePlaylist } from "@/hooks/usePlaylist";
+import { useLibrary } from "@/hooks/useLibrary";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { INITIAL_PLAYLIST } from "@/lib/catalog";
 import { MODES, MODE_BY_ID } from "@/lib/modes";
-import { PREVIEW_SECONDS, SynthEngine } from "@/lib/audioEngine";
+import { CLIP_SECONDS, PREVIEW_SECONDS, SynthEngine } from "@/lib/audioEngine";
 import { MusicIndex } from "@/lib/MusicIndex";
 import { DEFAULT_FILTER, isFilterActive, type SpatialFilter } from "@/lib/spatialFilter";
-import type { InsertOperation, PlaybackSource, SearchHit, Song, Track, VisualMode } from "@/types/music";
+import { clamp } from "@/lib/utils";
+import type { InsertOperation, PlaybackSource, SearchHit, Song, SongBindings, Track, VisualMode } from "@/types/music";
 import UniverseCanvas, { type CanvasInsets, type TraversalRequest } from "./UniverseCanvas";
 import ModeSwitcher from "./ModeSwitcher";
 import PlayerDock, { type Progress } from "./PlayerDock";
@@ -19,7 +21,8 @@ import ConstellationPanel from "./ConstellationPanel";
 import EventToast from "./EventToast";
 import FilterPanel from "./FilterPanel";
 import DiagnosticsPanel from "./DiagnosticsPanel";
-import { CloseIcon, FilterIcon, ListIcon, SearchIcon, SparkIcon } from "./icons";
+import LyricsPanel from "./LyricsPanel";
+import { CloseIcon, FilterIcon, ListIcon, LyricsIcon, SearchIcon, SparkIcon } from "./icons";
 
 const panelMotion = (side: "left" | "right") => ({
   initial: { opacity: 0, x: side === "left" ? -40 : 40 },
@@ -28,12 +31,18 @@ const panelMotion = (side: "left" | "right") => ({
   transition: { type: "spring" as const, stiffness: 320, damping: 32 },
 });
 
+const PREFERENCES_KEY = "universo-musical/preferencias";
+const SOURCES: PlaybackSource[] = ["preview", "synth", "youtube", "spotify"];
+/** The embedded YouTube player reports its position about once per second; in between it is estimated. */
+const MAX_CLOCK_DRIFT_SEC = 2;
+
 export default function MusicUniverse() {
   const playlist = usePlaylist(INITIAL_PLAYLIST);
+  const library = useLibrary(playlist);
   const { tracks, currentTrack, currentIndex, repeat } = playlist;
 
   const [mode, setMode] = useState<VisualMode>("universe");
-  const [source, setSource] = useState<PlaybackSource>("synth");
+  const [source, setSource] = useState<PlaybackSource>("preview");
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.7);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -41,8 +50,11 @@ export default function MusicUniverse() {
   const [filter, setFilter] = useState<SpatialFilter>(DEFAULT_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [lyricsOpen, setLyricsOpen] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const accent = MODE_BY_ID[mode].accent;
+  // The app's own engine plays these two; YouTube and Spotify run inside their embedded players
+  const ownAudio = source === "preview" || source === "synth";
   // Secondary index (hash tables + BST): rebuilt only when the list changes, not on every filter move
   const trackIndex = useMemo(() => new MusicIndex(tracks), [tracks]);
   const visible = useMemo(() => {
@@ -57,6 +69,28 @@ export default function MusicUniverse() {
     setListOpen(isDesktop);
   }, [isDesktop]);
 
+  // Volume, source and visual mode survive a reload
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(PREFERENCES_KEY) ?? "null") as { volume?: unknown; source?: unknown; mode?: unknown } | null;
+      if (typeof saved?.volume === "number" && Number.isFinite(saved.volume)) setVolume(clamp(saved.volume, 0, 1));
+      if (SOURCES.includes(saved?.source as PlaybackSource)) setSource(saved?.source as PlaybackSource);
+      if (MODES.some((item) => item.id === saved?.mode)) setMode(saved?.mode as VisualMode);
+    } catch {
+      // Unreadable or blocked storage: keep the defaults
+    }
+    setPreferencesLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!preferencesLoaded) return;
+    try {
+      window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ volume, source, mode }));
+    } catch {
+      // Same as above: nothing to do
+    }
+  }, [preferencesLoaded, volume, source, mode]);
+
   // ---------------------------------------------------------------------------
   // Audio engine (Web Audio API)
   // ---------------------------------------------------------------------------
@@ -64,6 +98,9 @@ export default function MusicUniverse() {
   const onEndedRef = useRef<() => void>(() => {});
   // Bumped when a preview ends, so a one-song loop restarts the same track
   const [replayToken, setReplayToken] = useState(0);
+  // Songs without a clip / video / track for the active source get it looked up once
+  const attemptedRef = useRef(new Set<string>());
+  const [resolvingUid, setResolvingUid] = useState<string | null>(null);
 
   const getEngine = useCallback(() => {
     if (!engineRef.current) {
@@ -84,7 +121,7 @@ export default function MusicUniverse() {
   // Keeps the engine in sync with (current song, source, play/pause)
   useEffect(() => {
     const engine = engineRef.current;
-    if (source !== "synth" || !currentTrack) {
+    if (!ownAudio || !currentTrack) {
       engine?.stop();
       return;
     }
@@ -92,10 +129,19 @@ export default function MusicUniverse() {
       engine?.pause();
       return;
     }
+    const clipUrl = source === "preview" ? currentTrack.previewUrl : undefined;
+    if (source === "preview" && !clipUrl) {
+      // Stay silent while the clip is being looked up; without one, the synth takes over
+      const lookedUp = attemptedRef.current.has(`preview:${currentTrack.uid}`) && resolvingUid !== currentTrack.uid;
+      if (!lookedUp) {
+        engine?.stop();
+        return;
+      }
+    }
     const active = getEngine();
-    if (active.loadedUid !== currentTrack.uid) active.play(currentTrack);
+    if (active.loadedKey !== SynthEngine.keyFor(currentTrack, clipUrl)) active.play(currentTrack, clipUrl);
     else active.resume();
-  }, [currentTrack, source, isPlaying, getEngine, replayToken]);
+  }, [currentTrack, source, ownAudio, isPlaying, getEngine, replayToken, resolvingUid]);
 
   useEffect(() => {
     getEngine().setVolume(volume);
@@ -113,9 +159,9 @@ export default function MusicUniverse() {
   // Actions
   // ---------------------------------------------------------------------------
   const startPlayback = useCallback(() => {
-    if (source === "synth") getEngine().unlock();
+    if (ownAudio) getEngine().unlock();
     setIsPlaying(true);
-  }, [source, getEngine]);
+  }, [ownAudio, getEngine]);
 
   const togglePlay = useCallback(() => {
     if (!currentTrack || source === "spotify") return;
@@ -143,38 +189,55 @@ export default function MusicUniverse() {
     [playlist, startPlayback],
   );
 
-  // Songs without a video / track for the active platform get it looked up once
-  const { enrich } = playlist;
-  const attemptedRef = useRef(new Set<string>());
-  const [resolvingUid, setResolvingUid] = useState<string | null>(null);
+  const handleSeek = useCallback(
+    (seconds: number) => {
+      const engine = engineRef.current;
+      if (engine && currentTrack && engine.loadedUid === currentTrack.uid) engine.seek(seconds);
+    },
+    [currentTrack],
+  );
 
+  const { enrich } = playlist;
   useEffect(() => {
     if (source === "synth" || !currentTrack) return;
-    const missing = source === "youtube" ? !currentTrack.youtubeId : !currentTrack.spotifyId;
+    const missing =
+      source === "preview" ? !currentTrack.previewUrl : source === "youtube" ? !currentTrack.youtubeId : !currentTrack.spotifyId;
     const attemptKey = `${source}:${currentTrack.uid}`;
     if (!missing || attemptedRef.current.has(attemptKey)) return;
     attemptedRef.current.add(attemptKey);
 
     const { uid, ...song } = currentTrack;
     setResolvingUid(uid);
-    resolveSong(song)
+    resolveSong(song, source === "preview" ? "media" : "all")
       .then((resolved) => {
-        const bindings: Pick<Song, "youtubeId" | "spotifyId"> = {};
+        const bindings: SongBindings = {};
         if (resolved.youtubeId) bindings.youtubeId = resolved.youtubeId;
         if (resolved.spotifyId) bindings.spotifyId = resolved.spotifyId;
+        if (resolved.previewUrl) bindings.previewUrl = resolved.previewUrl;
+        if (resolved.artworkUrl) bindings.artworkUrl = resolved.artworkUrl;
         if (Object.keys(bindings).length > 0) enrich(uid, bindings);
       })
       .finally(() => setResolvingUid((value) => (value === uid ? null : value)));
   }, [currentTrack, source, enrich]);
 
-  // Every song that actually starts playing enters the recently played tracker
+  // Every song that actually starts playing enters the recently played tracker and the play counts
   const { recordPlay } = playlist;
+  const { countPlay } = library;
   const currentUid = currentTrack?.uid;
   const currentTrackRef = useRef(currentTrack);
   currentTrackRef.current = currentTrack;
+  const countedRef = useRef("");
   useEffect(() => {
-    if (isPlaying && currentTrackRef.current) recordPlay(currentTrackRef.current);
-  }, [currentUid, isPlaying, recordPlay]);
+    const track = currentTrackRef.current;
+    if (!isPlaying || !track) return;
+    recordPlay(track);
+    // Pausing and resuming is still the same play; a song that ends and loops is a new one
+    const playKey = `${track.uid}:${replayToken}`;
+    if (countedRef.current !== playKey) {
+      countedRef.current = playKey;
+      countPlay(track);
+    }
+  }, [currentUid, isPlaying, replayToken, recordPlay, countPlay]);
 
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
@@ -211,6 +274,40 @@ export default function MusicUniverse() {
     [playlist, handleSelect, startPlayback],
   );
 
+  /** Plays a song from the rankings: the one already in the list, or a new star right after the current one. */
+  const handlePlaySong = useCallback(
+    (song: Song) => {
+      const index = tracks.findIndex((track) => track.id === song.id);
+      if (index >= 0) {
+        handleSelect(index);
+        return;
+      }
+      const position = playlist.add(song, "insertAt", currentIndexRef.current + 1);
+      if (playlist.playAt(position)) startPlayback();
+    },
+    [tracks, playlist, handleSelect, startPlayback],
+  );
+
+  // Another playlist means other songs: playback stops instead of jumping to an unexpected one
+  const handleSwitchGalaxy = useCallback(
+    (id: string) => {
+      if (library.switchGalaxy(id)) setIsPlaying(false);
+    },
+    [library],
+  );
+  const handleCreateGalaxy = useCallback(
+    (name: string) => {
+      if (library.createGalaxy(name)) setIsPlaying(false);
+    },
+    [library],
+  );
+  const handleDeleteGalaxy = useCallback(
+    (id: string) => {
+      if (library.deleteGalaxy(id)) setIsPlaying(false);
+    },
+    [library],
+  );
+
   const handleExport = useCallback(() => {
     const blob = new Blob([playlist.exportPlaylist()], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -234,17 +331,28 @@ export default function MusicUniverse() {
     if (next === "spotify") setIsPlaying(false);
   }, []);
 
-  const getAnalyser = useCallback(
-    () => (source === "synth" ? engineRef.current?.getAnalyser() ?? null : null),
-    [source],
-  );
+  const getAnalyser = useCallback(() => (ownAudio ? engineRef.current?.getAnalyser() ?? null : null), [ownAudio]);
 
   const getProgress = useCallback((): Progress | null => {
     const engine = engineRef.current;
-    if (source !== "synth" || !currentTrack) return null;
-    if (!engine || engine.loadedUid !== currentTrack.uid) return { position: 0, duration: PREVIEW_SECONDS };
-    return { position: Math.min(engine.position, PREVIEW_SECONDS), duration: PREVIEW_SECONDS };
-  }, [source, currentTrack]);
+    if (!ownAudio || !currentTrack) return null;
+    if (!engine || engine.loadedUid !== currentTrack.uid) {
+      return { position: 0, duration: source === "preview" && currentTrack.previewUrl ? CLIP_SECONDS : PREVIEW_SECONDS };
+    }
+    return { position: Math.min(engine.position, engine.duration), duration: engine.duration };
+  }, [ownAudio, source, currentTrack]);
+
+  // Position inside the full song, known only for YouTube: it drives the synced lyrics
+  const youtubeClockRef = useRef({ uid: "", time: 0, at: 0 });
+  const handleYoutubeTime = useCallback((uid: string, seconds: number) => {
+    youtubeClockRef.current = { uid, time: seconds, at: performance.now() };
+  }, []);
+  const getSongTime = useCallback((): number | null => {
+    const clock = youtubeClockRef.current;
+    if (source !== "youtube" || !currentUid || clock.uid !== currentUid) return null;
+    const drift = isPlaying ? Math.min((performance.now() - clock.at) / 1000, MAX_CLOCK_DRIFT_SEC) : 0;
+    return clock.time + drift;
+  }, [source, currentUid, isPlaying]);
 
   const toggleSearch = () => {
     setSearchOpen((open) => !open);
@@ -256,13 +364,13 @@ export default function MusicUniverse() {
   };
 
   // Keyboard shortcuts: Space, ← →, 1-4
-  const keyHandlers = useRef({ togglePlay, handleNext, handlePrev, undo: playlist.undo, redo: playlist.redo });
-  keyHandlers.current = { togglePlay, handleNext, handlePrev, undo: playlist.undo, redo: playlist.redo };
+  const keyHandlers = useRef({ togglePlay, handleNext, handlePrev, handleSeek, isPlaying, undo: playlist.undo, redo: playlist.redo });
+  keyHandlers.current = { togglePlay, handleNext, handlePrev, handleSeek, isPlaying, undo: playlist.undo, redo: playlist.redo };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
       // Undo / redo: Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y (Cmd on macOS)
       if ((event.ctrlKey || event.metaKey) && !event.altKey) {
         const key = event.key.toLowerCase();
@@ -286,10 +394,63 @@ export default function MusicUniverse() {
         setMode(MODES[Number(event.key) - 1].id);
       } else if (event.key.toLowerCase() === "d") {
         setDiagnosticsOpen((open) => !open);
+      } else if (event.key.toLowerCase() === "l") {
+        setLyricsOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // System media controls (keyboard media keys, lock screen, headphones)
+  // ---------------------------------------------------------------------------
+  const artworkUrl = currentTrack?.artworkUrl;
+  const mediaTitle = currentTrack?.title;
+  const mediaArtist = currentTrack?.artist;
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata =
+      mediaTitle && mediaArtist
+        ? new MediaMetadata({
+            title: mediaTitle,
+            artist: mediaArtist,
+            album: "Universo Musical",
+            artwork: artworkUrl ? [{ src: artworkUrl, sizes: "300x300", type: "image/jpeg" }] : [],
+          })
+        : null;
+  }, [mediaTitle, mediaArtist, artworkUrl]);
+
+  useEffect(() => {
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const session = navigator.mediaSession;
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["play", () => !keyHandlers.current.isPlaying && keyHandlers.current.togglePlay()],
+      ["pause", () => keyHandlers.current.isPlaying && keyHandlers.current.togglePlay()],
+      ["nexttrack", () => keyHandlers.current.handleNext()],
+      ["previoustrack", () => keyHandlers.current.handlePrev()],
+      ["seekto", (details) => typeof details.seekTime === "number" && keyHandlers.current.handleSeek(details.seekTime)],
+    ];
+    for (const [action, handler] of handlers) {
+      try {
+        session.setActionHandler(action, handler);
+      } catch {
+        // This browser does not support the action
+      }
+    }
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          session.setActionHandler(action, null);
+        } catch {
+          // Same as above
+        }
+      }
+    };
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -312,7 +473,7 @@ export default function MusicUniverse() {
     };
   }, []);
 
-  const embedVisible = source !== "synth" && currentTrack !== null;
+  const embedVisible = !ownAudio && currentTrack !== null;
   const embedHeight = source === "youtube" ? 200 : 170;
   const insets: CanvasInsets = {
     top: isDesktop ? 90 : 120,
@@ -365,7 +526,7 @@ export default function MusicUniverse() {
           </AnimatePresence>
         </div>
 
-        <div className="pointer-events-auto flex gap-2">
+        <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
           <button
             onClick={() => setDiagnosticsOpen((open) => !open)}
             className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
@@ -374,6 +535,15 @@ export default function MusicUniverse() {
             title="Diagnóstico de la lista · D"
           >
             <SparkIcon width={14} height={14} /> Diagnóstico
+          </button>
+          <button
+            onClick={() => setLyricsOpen((open) => !open)}
+            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            style={{ color: lyricsOpen ? accent : undefined }}
+            aria-pressed={lyricsOpen}
+            title="Letra de la canción · L"
+          >
+            <LyricsIcon width={14} height={14} /> Letra
           </button>
           <button
             onClick={() => setFilterOpen((open) => !open)}
@@ -435,6 +605,22 @@ export default function MusicUniverse() {
         )}
       </AnimatePresence>
 
+      {/* Floating lyrics (toggle: L) */}
+      <AnimatePresence>
+        {lyricsOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: "-50%", y: -10, scale: 0.97 }}
+            animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
+            exit={{ opacity: 0, x: "-50%", y: -10, scale: 0.97 }}
+            transition={{ duration: 0.18 }}
+            className="glass absolute left-1/2 top-28 z-40 w-[min(24rem,calc(100%-1.5rem))] rounded-2xl p-4 lg:top-20"
+          >
+            <PanelClose onClick={() => setLyricsOpen(false)} />
+            <LyricsPanel track={currentTrack} accent={accent} getSongTime={getSongTime} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Left panel: search */}
       <AnimatePresence>
         {searchOpen && (
@@ -469,10 +655,26 @@ export default function MusicUniverse() {
               currentIndex={currentIndex}
               visible={visible}
               history={playlist.history}
+              queue={playlist.queue}
+              topPlayed={library.topPlayed}
+              favorites={library.favorites}
+              favoriteIds={library.favoriteIds}
+              galaxies={library.galaxies}
+              activeGalaxyId={library.activeId}
+              canCreateGalaxy={library.canCreateGalaxy}
               accent={accent}
+              onSwitchGalaxy={handleSwitchGalaxy}
+              onCreateGalaxy={handleCreateGalaxy}
+              onRenameGalaxy={library.renameGalaxy}
+              onDeleteGalaxy={handleDeleteGalaxy}
               onPlayAt={handleSelect}
               onPlayHistory={handlePlayHistory}
+              onPlaySong={handlePlaySong}
               onRemove={(index) => playlist.remove(index)}
+              onMove={playlist.move}
+              onEnqueue={playlist.enqueue}
+              onUnqueue={playlist.unqueue}
+              onClearQueue={playlist.clearQueue}
               onTraverse={handleTraverse}
               onShuffle={playlist.shuffleOrder}
               canUndo={playlist.canUndo}
@@ -488,7 +690,7 @@ export default function MusicUniverse() {
 
       {/* Embedded YouTube / Spotify player */}
       <AnimatePresence>
-        {currentTrack && source !== "synth" && (
+        {currentTrack && source !== "preview" && source !== "synth" && (
           <motion.div
             key="embed"
             initial={{ opacity: 0, x: "-50%", y: 30, scale: 0.96 }}
@@ -503,6 +705,7 @@ export default function MusicUniverse() {
               source={source}
               isPlaying={isPlaying}
               resolving={resolvingUid === currentTrack.uid}
+              onTime={handleYoutubeTime}
             />
           </motion.div>
         )}
@@ -520,7 +723,10 @@ export default function MusicUniverse() {
           shuffle={playlist.shuffleMode}
           volume={volume}
           accent={accent}
+          favorite={currentTrack ? library.favoriteIds.has(currentTrack.id) : false}
           getProgress={getProgress}
+          onSeek={handleSeek}
+          onFavorite={() => currentTrack && library.toggleFavorite(currentTrack)}
           onToggle={togglePlay}
           onNext={handleNext}
           onPrev={handlePrev}
@@ -540,16 +746,19 @@ export default function MusicUniverse() {
  */
 async function materialize(hit: SearchHit): Promise<Song> {
   if (hit.origin === "local" || hit.origin === "simulated") return hit.song;
-  return resolveSong(hit.song);
+  return resolveSong(hit.song, "all");
 }
 
-/** Asks the server for the YouTube / Spotify bindings of a song. Never throws. */
-async function resolveSong(song: Song): Promise<Song> {
+/**
+ * Asks the server for what a song needs to be played: "media" is the real audio
+ * clip and the cover, "all" adds the YouTube / Spotify bindings. Never throws.
+ */
+async function resolveSong(song: Song, scope: "all" | "media"): Promise<Song> {
   try {
     const response = await fetch("/api/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ song }),
+      body: JSON.stringify({ song, scope }),
     });
     if (response.ok) return ((await response.json()) as { song: Song }).song;
   } catch (error) {

@@ -7,19 +7,25 @@ import { ExternalIcon } from "./icons";
 
 interface EmbedPlayerProps {
   track: Track;
-  source: Exclude<PlaybackSource, "synth">;
+  source: Exclude<PlaybackSource, "preview" | "synth">;
   isPlaying: boolean;
   /** True while the missing bindings of this track are being looked up */
   resolving: boolean;
+  /** Position of the YouTube video in seconds, reported about once per second */
+  onTime?: (uid: string, seconds: number) => void;
 }
+
+const YOUTUBE_ORIGIN = "https://www.youtube.com";
 
 /**
  * Embedded YouTube or Spotify player. The parent sets `key={track.uid}`, so
  * moving to another node (next / prev) remounts the iframe with the new track.
  */
-export default function EmbedPlayer({ track, source, isPlaying, resolving }: EmbedPlayerProps) {
+export default function EmbedPlayer({ track, source, isPlaying, resolving, onTime }: EmbedPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const playingAtMount = useRef(isPlaying);
+  const onTimeRef = useRef(onTime);
+  onTimeRef.current = onTime;
 
   const youtubeSrc = useMemo(() => {
     if (!track.youtubeId) return null;
@@ -39,9 +45,30 @@ export default function EmbedPlayer({ track, source, isPlaying, resolving }: Emb
     if (!target) return;
     target.postMessage(
       JSON.stringify({ event: "command", func: isPlaying ? "playVideo" : "pauseVideo", args: [] }),
-      "https://www.youtube.com",
+      YOUTUBE_ORIGIN,
     );
   }, [isPlaying, source]);
+
+  // Once the player is told someone is listening, it posts its state (including the position) on its own
+  const uid = track.uid;
+  useEffect(() => {
+    if (source !== "youtube") return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== YOUTUBE_ORIGIN || event.source !== iframeRef.current?.contentWindow || typeof event.data !== "string") return;
+      try {
+        const time = (JSON.parse(event.data) as { info?: { currentTime?: unknown } }).info?.currentTime;
+        if (typeof time === "number") onTimeRef.current?.(uid, time);
+      } catch {
+        // Not a player message
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [source, uid]);
+
+  const startListening = () => {
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: uid, channel: "widget" }), YOUTUBE_ORIGIN);
+  };
 
   if (source === "youtube" && youtubeSrc) {
     return (
@@ -49,6 +76,7 @@ export default function EmbedPlayer({ track, source, isPlaying, resolving }: Emb
         ref={iframeRef}
         src={youtubeSrc}
         title={`YouTube: ${track.title}`}
+        onLoad={startListening}
         className="aspect-video w-full rounded-xl"
         allow="autoplay; encrypted-media; picture-in-picture"
         allowFullScreen

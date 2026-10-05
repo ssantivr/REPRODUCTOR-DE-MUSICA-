@@ -135,3 +135,45 @@ export const UploadIcon = (p: IconProps) => (
     <path d="M12 20V9M7 14l5-5 5 5M5 4h14" />
   </svg>
 );
+
+export const HeartIcon = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <svg {...base(p)}>
+    <path
+      d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"
+      fill={filled ? "currentColor" : "none"}
+    />
+  </svg>
+);
+
+export const QueueIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 6h11M4 11h11M4 16h7" />
+    <path d="M16 13.5v6l5-3-5-3z" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const GripIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" strokeWidth={2.6} />
+  </svg>
+);
+
+export const LyricsIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 6h10M4 11h7M4 16h5" />
+    <path d="M17 17V7l4-1v3" />
+    <circle cx="15" cy="17" r="2" />
+  </svg>
+);
+
+export const PlusIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const PencilIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 20l1-4L16 5l3 3L8 19l-4 1z" />
+  </svg>
+);

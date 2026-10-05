@@ -416,3 +416,19 @@ export function paintFlowLabels(ctx: CanvasRenderingContext2D, points: Point[]) 
   ctx.fillStyle = "rgba(232, 121, 249, 0.9)";
   ctx.fillText("FINAL", last.x, last.y - last.r - (points.length === 1 ? 26 : 14));
 }
+
+/** Album cover clipped to the particle of the song that is playing. */
+export function paintCover(ctx: CanvasRenderingContext2D, cover: HTMLImageElement, point: Point) {
+  const radius = Math.max(point.r, 12);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius, 0, TAU);
+  ctx.clip();
+  ctx.drawImage(cover, point.x - radius, point.y - radius, radius * 2, radius * 2);
+  ctx.restore();
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius, 0, TAU);
+  ctx.stroke();
+}
