@@ -34,6 +34,9 @@ interface StoredLibrary {
   plays: PlayCount[];
 }
 
+/** Priority of the rankings: more plays first, the latest play breaks ties. */
+export const comparePlays = (a: PlayCount, b: PlayCount) => a.plays - b.plays || a.lastPlayedAt - b.lastPlayedAt;
+
 const DEFAULT_GALAXY: Galaxy = { id: "principal", name: "Principal" };
 const EMPTY_LIST: SerializedList<Song> = { version: 1, circular: true, currentIndex: -1, items: [] };
 
@@ -144,13 +147,16 @@ export function useLibrary(playlist: ReturnType<typeof usePlaylist>) {
   );
 
   const createGalaxy = useCallback(
-    (rawName: string): boolean => {
+    (rawName: string, list?: unknown): boolean => {
       const name = cleanName(rawName);
       if (!name || galaxies.length >= MAX_GALAXIES) return false;
       const galaxy: Galaxy = { id: `galaxia-${Date.now().toString(36)}`, name };
-      shelfRef.current.set(activeRef.current, serialize());
+      const previous = serialize();
+      // With `list` the new playlist arrives already filled (a shared link); invalid data creates nothing
+      const message = list === undefined ? `Nació la galaxia «${name}»: agrégale estrellas desde el buscador` : `Llegó la galaxia «${name}» desde un enlace`;
+      if (!load(list ?? EMPTY_LIST, message)) return false;
+      shelfRef.current.set(activeRef.current, previous);
       shelfRef.current.set(galaxy.id, EMPTY_LIST);
-      load(EMPTY_LIST, `Nació la galaxia «${name}»: agrégale estrellas desde el buscador`);
       setGalaxies((current) => [...current, galaxy]);
       setActiveId(galaxy.id);
       return true;
@@ -204,7 +210,7 @@ export function useLibrary(playlist: ReturnType<typeof usePlaylist>) {
 
   /** Most played songs, taken from a max-heap: more plays first, the latest play breaks ties. */
   const topPlayed = useMemo(
-    () => topK(plays, TOP_SIZE, (a, b) => a.plays - b.plays || a.lastPlayedAt - b.lastPlayedAt),
+    () => topK(plays, TOP_SIZE, comparePlays),
     [plays],
   );
 
@@ -220,6 +226,9 @@ export function useLibrary(playlist: ReturnType<typeof usePlaylist>) {
     favoriteIds,
     toggleFavorite,
     countPlay,
+    plays,
     topPlayed,
+    /** True once the saved library has been read */
+    hydrated,
   };
 }

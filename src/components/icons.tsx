@@ -177,3 +177,19 @@ export const PencilIcon = (p: IconProps) => (
     <path d="M4 20l1-4L16 5l3 3L8 19l-4 1z" />
   </svg>
 );
+
+export const LinkIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2" />
+    <path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" />
+  </svg>
+);
+
+export const TreeIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="5" r="2.2" />
+    <circle cx="6" cy="18" r="2.2" />
+    <circle cx="18" cy="18" r="2.2" />
+    <path d="M10.8 6.9L7 16M13.2 6.9L17 16" />
+  </svg>
+);

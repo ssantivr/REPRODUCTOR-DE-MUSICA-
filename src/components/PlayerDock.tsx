@@ -118,15 +118,18 @@ export default function PlayerDock(props: PlayerDockProps) {
           </AnimatePresence>
         </div>
         {track && (
-          <button
+          <motion.button
+            whileTap={{ scale: 0.8 }}
             onClick={props.onFavorite}
             title={favorite ? "Quitar de favoritas" : "Marcar como favorita"}
             aria-pressed={favorite}
             className="shrink-0 rounded-full p-2 transition hover:bg-white/10"
             style={{ color: favorite ? "#fb7185" : "rgba(255,255,255,0.4)" }}
           >
-            <HeartIcon width={16} height={16} filled={favorite} />
-          </button>
+            <motion.span className="block" initial={false} animate={{ scale: favorite ? [1, 1.5, 1] : 1 }} transition={{ duration: 0.35 }}>
+              <HeartIcon width={16} height={16} filled={favorite} />
+            </motion.span>
+          </motion.button>
         )}
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { usePlaylist } from "@/hooks/usePlaylist";
 import { useLibrary } from "@/hooks/useLibrary";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -10,9 +10,10 @@ import { MODES, MODE_BY_ID } from "@/lib/modes";
 import { CLIP_SECONDS, PREVIEW_SECONDS, SynthEngine } from "@/lib/audioEngine";
 import { MusicIndex } from "@/lib/MusicIndex";
 import { DEFAULT_FILTER, isFilterActive, type SpatialFilter } from "@/lib/spatialFilter";
+import { MAX_PAYLOAD_LENGTH, decodeGalaxy, encodeGalaxy, payloadFromHash, shareUrl } from "@/lib/shareLink";
 import { clamp } from "@/lib/utils";
 import type { InsertOperation, PlaybackSource, SearchHit, Song, SongBindings, Track, VisualMode } from "@/types/music";
-import UniverseCanvas, { type CanvasInsets, type TraversalRequest } from "./UniverseCanvas";
+import UniverseCanvas, { TRAVERSAL_STEP_SECONDS, type CanvasInsets, type TraversalRequest } from "./UniverseCanvas";
 import ModeSwitcher from "./ModeSwitcher";
 import PlayerDock, { type Progress } from "./PlayerDock";
 import EmbedPlayer from "./EmbedPlayer";
@@ -22,7 +23,9 @@ import EventToast from "./EventToast";
 import FilterPanel from "./FilterPanel";
 import DiagnosticsPanel from "./DiagnosticsPanel";
 import LyricsPanel from "./LyricsPanel";
-import { CloseIcon, FilterIcon, ListIcon, LyricsIcon, SearchIcon, SparkIcon } from "./icons";
+import StructuresPanel from "./structures/StructuresPanel";
+import type { Rotation } from "./structures/AvlView";
+import { CloseIcon, FilterIcon, ListIcon, LyricsIcon, SearchIcon, SparkIcon, TreeIcon } from "./icons";
 
 const panelMotion = (side: "left" | "right") => ({
   initial: { opacity: 0, x: side === "left" ? -40 : 40 },
@@ -36,7 +39,16 @@ const SOURCES: PlaybackSource[] = ["preview", "synth", "youtube", "spotify"];
 /** The embedded YouTube player reports its position about once per second; in between it is estimated. */
 const MAX_CLOCK_DRIFT_SEC = 2;
 
+/** reducedMotion="user": whoever asks the system for less motion gets fades instead of movement. */
 export default function MusicUniverse() {
+  return (
+    <MotionConfig reducedMotion="user">
+      <Universe />
+    </MotionConfig>
+  );
+}
+
+function Universe() {
   const playlist = usePlaylist(INITIAL_PLAYLIST);
   const library = useLibrary(playlist);
   const { tracks, currentTrack, currentIndex, repeat } = playlist;
@@ -50,13 +62,35 @@ export default function MusicUniverse() {
   const [filter, setFilter] = useState<SpatialFilter>(DEFAULT_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [structuresOpen, setStructuresOpen] = useState(false);
   const [lyricsOpen, setLyricsOpen] = useState(false);
+  // Diagnostics and structures share the same corner: opening one closes the other
+  const toggleDiagnostics = useCallback(() => {
+    setDiagnosticsOpen((open) => !open);
+    setStructuresOpen(false);
+  }, []);
+  const toggleStructures = useCallback(() => {
+    setStructuresOpen((open) => !open);
+    setDiagnosticsOpen(false);
+  }, []);
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const accent = MODE_BY_ID[mode].accent;
   // The app's own engine plays these two; YouTube and Spotify run inside their embedded players
   const ownAudio = source === "preview" || source === "synth";
-  // Secondary index (hash tables + BST): rebuilt only when the list changes, not on every filter move
-  const trackIndex = useMemo(() => new MusicIndex(tracks), [tracks]);
+  // Secondary index (hash tables + AVL tree): when the list changes it only adds and removes
+  // the songs that changed, and it is not touched at all when a filter moves
+  const indexRef = useRef<MusicIndex<Track> | null>(null);
+  // Rotations of the tempo tree during the last change of the list, for the structures panel
+  const rotationsRef = useRef<Rotation[]>([]);
+  const trackIndex = useMemo(() => {
+    const index = (indexRef.current ??= new MusicIndex<Track>());
+    const made: Rotation[] = [];
+    index.tempoTree.onRotate = (direction, key) => made.push({ direction, key });
+    // Kept only when something changed: a repeated call with the same list must not erase them
+    if (index.sync(tracks) > 0) rotationsRef.current = made;
+    index.tempoTree.onRotate = null;
+    return index;
+  }, [tracks]);
   const visible = useMemo(() => {
     const matches = trackIndex.filter(filter);
     return tracks.map((track) => matches.has(track));
@@ -189,6 +223,14 @@ export default function MusicUniverse() {
     [playlist, startPlayback],
   );
 
+  // "Mezclar" also tells the canvas, which swirls the stars into their new order
+  const [shuffleSignal, setShuffleSignal] = useState(0);
+  const { shuffleOrder } = playlist;
+  const handleShuffle = useCallback(() => {
+    shuffleOrder();
+    setShuffleSignal((signal) => signal + 1);
+  }, [shuffleOrder]);
+
   const handleSeek = useCallback(
     (seconds: number) => {
       const engine = engineRef.current;
@@ -308,6 +350,53 @@ export default function MusicUniverse() {
     [library],
   );
 
+  // ---------------------------------------------------------------------------
+  // Sharing a playlist inside a link
+  // ---------------------------------------------------------------------------
+  const { announce, serialize } = playlist;
+  const activeGalaxyName = library.galaxies.find((galaxy) => galaxy.id === library.activeId)?.name ?? "Galaxia";
+  const handleShare = useCallback(async () => {
+    try {
+      const payload = await encodeGalaxy(activeGalaxyName, serialize());
+      if (payload.length > MAX_PAYLOAD_LENGTH) {
+        announce("warning", "Esta galaxia es demasiado grande para un enlace: usa «Exportar constelación»");
+        return;
+      }
+      const url = shareUrl(window.location.href.split("#")[0], payload);
+      try {
+        await navigator.clipboard.writeText(url);
+        announce("traverse", `Enlace de «${activeGalaxyName}» copiado: quien lo abra recibirá la galaxia completa`);
+      } catch {
+        // No clipboard access (permission denied, page without focus): the address bar carries the link
+        window.history.replaceState(null, "", url);
+        announce("traverse", "El enlace quedó en la barra de direcciones: cópialo desde ahí para compartir la galaxia");
+      }
+    } catch {
+      announce("warning", "No se pudo crear el enlace");
+    }
+  }, [activeGalaxyName, serialize, announce]);
+
+  // A link with a playlist becomes a new galaxy, once the saved library is in place
+  const createGalaxyRef = useRef(library.createGalaxy);
+  createGalaxyRef.current = library.createGalaxy;
+  const canCreateGalaxyRef = useRef(library.canCreateGalaxy);
+  canCreateGalaxyRef.current = library.canCreateGalaxy;
+  const sharedHandledRef = useRef(false);
+  useEffect(() => {
+    if (!library.hydrated || sharedHandledRef.current) return;
+    sharedHandledRef.current = true;
+    const payload = payloadFromHash(window.location.hash);
+    if (!payload) return;
+    // The address goes back to normal right away, so a reload does not bring the galaxy twice
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    void decodeGalaxy(payload).then((shared) => {
+      if (!shared) announce("warning", "El enlace no trae una galaxia válida");
+      else if (!canCreateGalaxyRef.current) announce("warning", "Ya tienes el máximo de galaxias: elimina una para recibir la del enlace");
+      else if (createGalaxyRef.current(shared.name || "Compartida", shared.list)) setIsPlaying(false);
+      else announce("warning", "El enlace no trae una galaxia válida");
+    });
+  }, [library.hydrated, announce]);
+
   const handleExport = useCallback(() => {
     const blob = new Blob([playlist.exportPlaylist()], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -321,7 +410,8 @@ export default function MusicUniverse() {
 
   const [traversal, setTraversal] = useState<TraversalRequest | null>(null);
   const handleTraverse = useCallback(() => {
-    if (playlist.traverseAll() > 0) {
+    // Same pace as the comet, so the list lights each star as the comet reaches it
+    if (playlist.traverseAll(TRAVERSAL_STEP_SECONDS * 1000) > 0) {
       setTraversal((previous) => ({ id: (previous?.id ?? 0) + 1, startedAt: performance.now() / 1000 }));
     }
   }, [playlist]);
@@ -347,12 +437,30 @@ export default function MusicUniverse() {
   const handleYoutubeTime = useCallback((uid: string, seconds: number) => {
     youtubeClockRef.current = { uid, time: seconds, at: performance.now() };
   }, []);
+  // A 30-second clip starts at an unknown point of the song: the listener marks the line that is
+  // sounding, and from then on the clip position plus that offset is the position in the song
+  const clipOffsetsRef = useRef(new Map<string, number>());
+  const canAnchorLyrics = source === "preview" && Boolean(currentTrack?.previewUrl);
+  const handleAnchorLyric = useCallback(
+    (lineSeconds: number) => {
+      const engine = engineRef.current;
+      if (!currentTrack || !engine || engine.loadedUid !== currentTrack.uid) return;
+      clipOffsetsRef.current.set(currentTrack.id, lineSeconds - engine.position);
+    },
+    [currentTrack],
+  );
   const getSongTime = useCallback((): number | null => {
+    if (source === "preview") {
+      const engine = engineRef.current;
+      const offset = currentTrack ? clipOffsetsRef.current.get(currentTrack.id) : undefined;
+      if (offset === undefined || !currentTrack?.previewUrl || !engine || engine.loadedUid !== currentTrack.uid) return null;
+      return offset + engine.position;
+    }
     const clock = youtubeClockRef.current;
     if (source !== "youtube" || !currentUid || clock.uid !== currentUid) return null;
     const drift = isPlaying ? Math.min((performance.now() - clock.at) / 1000, MAX_CLOCK_DRIFT_SEC) : 0;
     return clock.time + drift;
-  }, [source, currentUid, isPlaying]);
+  }, [source, currentUid, currentTrack, isPlaying]);
 
   const toggleSearch = () => {
     setSearchOpen((open) => !open);
@@ -364,8 +472,8 @@ export default function MusicUniverse() {
   };
 
   // Keyboard shortcuts: Space, ← →, 1-4
-  const keyHandlers = useRef({ togglePlay, handleNext, handlePrev, handleSeek, isPlaying, undo: playlist.undo, redo: playlist.redo });
-  keyHandlers.current = { togglePlay, handleNext, handlePrev, handleSeek, isPlaying, undo: playlist.undo, redo: playlist.redo };
+  const keyHandlers = useRef({ togglePlay, handleNext, handlePrev, handleSeek, isPlaying, undo: playlist.undo, redo: playlist.redo, toggleDiagnostics, toggleStructures });
+  keyHandlers.current = { togglePlay, handleNext, handlePrev, handleSeek, isPlaying, undo: playlist.undo, redo: playlist.redo, toggleDiagnostics, toggleStructures };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -393,7 +501,9 @@ export default function MusicUniverse() {
       } else if (["1", "2", "3", "4"].includes(event.key)) {
         setMode(MODES[Number(event.key) - 1].id);
       } else if (event.key.toLowerCase() === "d") {
-        setDiagnosticsOpen((open) => !open);
+        keyHandlers.current.toggleDiagnostics();
+      } else if (event.key.toLowerCase() === "e") {
+        keyHandlers.current.toggleStructures();
       } else if (event.key.toLowerCase() === "l") {
         setLyricsOpen((open) => !open);
       }
@@ -494,6 +604,9 @@ export default function MusicUniverse() {
         isPlaying={isPlaying}
         insets={insets}
         traversal={traversal}
+        walk={playlist.walk}
+        shuffleSignal={shuffleSignal}
+        galaxyId={library.activeId}
         circular={repeat}
         filter={filter}
         getAnalyser={getAnalyser}
@@ -528,7 +641,16 @@ export default function MusicUniverse() {
 
         <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
           <button
-            onClick={() => setDiagnosticsOpen((open) => !open)}
+            onClick={toggleStructures}
+            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            style={{ color: structuresOpen ? accent : undefined }}
+            aria-pressed={structuresOpen}
+            title="Las estructuras de datos por dentro · E"
+          >
+            <TreeIcon width={14} height={14} /> Estructuras
+          </button>
+          <button
+            onClick={toggleDiagnostics}
             className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
             style={{ color: diagnosticsOpen ? accent : undefined }}
             aria-pressed={diagnosticsOpen}
@@ -605,6 +727,33 @@ export default function MusicUniverse() {
         )}
       </AnimatePresence>
 
+      {/* Floating view of the data structures (toggle: E) */}
+      <AnimatePresence>
+        {structuresOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.97 }}
+            transition={{ duration: 0.18 }}
+            className="glass absolute inset-x-3 top-28 z-40 rounded-2xl p-4 sm:left-4 sm:right-auto sm:w-[27rem] lg:top-16"
+          >
+            <PanelClose onClick={() => setStructuresOpen(false)} />
+            <StructuresPanel
+              tracks={tracks}
+              tempoTree={trackIndex.tempoTree}
+              rotations={rotationsRef.current}
+              plays={library.plays}
+              nodeTable={playlist.nodeTable}
+              undoSteps={playlist.undoSteps}
+              redoSteps={playlist.redoSteps}
+              accent={accent}
+              onUndo={playlist.undo}
+              onRedo={playlist.redo}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Floating lyrics (toggle: L) */}
       <AnimatePresence>
         {lyricsOpen && (
@@ -616,7 +765,7 @@ export default function MusicUniverse() {
             className="glass absolute left-1/2 top-28 z-40 w-[min(24rem,calc(100%-1.5rem))] rounded-2xl p-4 lg:top-20"
           >
             <PanelClose onClick={() => setLyricsOpen(false)} />
-            <LyricsPanel track={currentTrack} accent={accent} getSongTime={getSongTime} />
+            <LyricsPanel track={currentTrack} accent={accent} getSongTime={getSongTime} onAnchor={canAnchorLyrics ? handleAnchorLyric : undefined} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -654,6 +803,8 @@ export default function MusicUniverse() {
               tracks={tracks}
               currentIndex={currentIndex}
               visible={visible}
+              isPlaying={isPlaying}
+              walk={playlist.walk}
               history={playlist.history}
               queue={playlist.queue}
               topPlayed={library.topPlayed}
@@ -676,12 +827,13 @@ export default function MusicUniverse() {
               onUnqueue={playlist.unqueue}
               onClearQueue={playlist.clearQueue}
               onTraverse={handleTraverse}
-              onShuffle={playlist.shuffleOrder}
+              onShuffle={handleShuffle}
               canUndo={playlist.canUndo}
               canRedo={playlist.canRedo}
               onUndo={playlist.undo}
               onRedo={playlist.redo}
               onExport={handleExport}
+              onShare={handleShare}
               onImport={playlist.importPlaylist}
             />
           </motion.aside>

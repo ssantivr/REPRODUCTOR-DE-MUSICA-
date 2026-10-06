@@ -1,4 +1,4 @@
-import type { Track, VisualMode } from "@/types/music";
+import type { Genre, Track, VisualMode } from "@/types/music";
 import { genreColor } from "../genres";
 import { TAU, type Area, type Point } from "./layout";
 
@@ -9,7 +9,32 @@ export interface Star {
   phase: number;
 }
 
-export function paintBackground(ctx: CanvasRenderingContext2D, mode: VisualMode, w: number, h: number, t: number, stars: Star[]) {
+/** What makes the background react: all zero / one for a still sky. */
+export interface BackgroundFx {
+  /** 0–1: lets one background fade in over another */
+  opacity: number;
+  /** Audio level 0–1: the stars swell with the bass */
+  level: number;
+  /** Pointer offset from the center, -0.5 to 0.5: near stars shift more than far ones */
+  parallaxX: number;
+  parallaxY: number;
+  /** 0–1: stars stretch into streaks flying away from the center */
+  warp: number;
+}
+
+export const STILL_SKY: BackgroundFx = { opacity: 1, level: 0, parallaxX: 0, parallaxY: 0, warp: 0 };
+const PARALLAX_PX = 26;
+
+export function paintBackground(
+  ctx: CanvasRenderingContext2D,
+  mode: VisualMode,
+  w: number,
+  h: number,
+  t: number,
+  stars: Star[],
+  fx: BackgroundFx = STILL_SKY,
+) {
+  ctx.globalAlpha = fx.opacity;
   if (mode === "flow") {
     const river = ctx.createLinearGradient(0, 0, w, 0);
     river.addColorStop(0, "#020b16");
@@ -17,6 +42,7 @@ export function paintBackground(ctx: CanvasRenderingContext2D, mode: VisualMode,
     river.addColorStop(1, "#0d0518");
     ctx.fillStyle = river;
     ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
     return;
   }
 
@@ -52,11 +78,28 @@ export function paintBackground(ctx: CanvasRenderingContext2D, mode: VisualMode,
   }
 
   ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#ffffff";
+  const dim = (mode === "energy" ? 0.25 : 0.75) * fx.opacity;
+  // The night keeps its calm: the music moves its stars half as much
+  const pulse = fx.level * (mode === "night" ? 0.5 : 1);
   for (const star of stars) {
     const twinkle =
       mode === "night" ? 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(t * 1.4 + star.phase)) : 0.55 + 0.3 * Math.sin(t * 0.6 + star.phase);
-    ctx.globalAlpha = (mode === "energy" ? 0.25 : 0.75) * twinkle;
-    ctx.fillRect(star.x * w, star.y * h, star.size, star.size);
+    // Bigger stars are "closer": they follow the pointer and the bass more
+    const x = star.x * w - fx.parallaxX * star.size * PARALLAX_PX;
+    const y = star.y * h - fx.parallaxY * star.size * PARALLAX_PX;
+    const size = star.size * (1 + pulse * star.size * 1.1);
+    ctx.globalAlpha = Math.min(1, dim * twinkle * (1 + pulse * 0.9));
+    if (fx.warp > 0.01) {
+      const stretch = fx.warp * 0.4;
+      ctx.lineWidth = size;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + (x - w / 2) * stretch, y + (y - h / 2) * stretch);
+      ctx.stroke();
+    } else {
+      ctx.fillRect(x, y, size, size);
+    }
   }
   ctx.globalAlpha = 1;
 }
@@ -173,7 +216,7 @@ export function buildCurves(points: Point[], t: number, energy: number): Curve[]
 }
 
 /** Point of a cubic Bézier at `f` (0 = a, 1 = b). */
-function cubicAt(a: Point, curve: Curve, b: Point, f: number): { x: number; y: number } {
+export function cubicAt(a: Point, curve: Curve, b: Point, f: number): { x: number; y: number } {
   const g = 1 - f;
   const wa = g * g * g;
   const w1 = 3 * g * g * f;
@@ -431,4 +474,108 @@ export function paintCover(ctx: CanvasRenderingContext2D, cover: HTMLImageElemen
   ctx.beginPath();
   ctx.arc(point.x, point.y, radius, 0, TAU);
   ctx.stroke();
+}
+
+/** A star that left the list: it collapses onto itself while a ring closes in. `progress` goes 0 → 1. */
+export function paintImplosion(ctx: CanvasRenderingContext2D, genre: Genre, point: Point, progress: number) {
+  const remaining = 1 - progress;
+  ctx.strokeStyle = genreColor(genre, 0.85 * progress * remaining * 4);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, point.r + 46 * remaining * remaining, 0, TAU);
+  ctx.stroke();
+
+  ctx.fillStyle = genreColor(genre, remaining);
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, point.r * remaining, 0, TAU);
+  ctx.fill();
+  // Last flash right before it disappears
+  if (progress > 0.7) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${(1 - progress) * 3})`;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 2 + (progress - 0.7) * 20, 0, TAU);
+    ctx.fill();
+  }
+}
+
+/** The link that two stars gain when the one between them leaves: it flashes while it "welds". */
+export function paintWeld(ctx: CanvasRenderingContext2D, a: Point, curve: Curve, b: Point, progress: number) {
+  const remaining = 1 - progress;
+  ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * remaining})`;
+  ctx.lineWidth = 1 + 3 * remaining;
+  ctx.shadowColor = "rgba(34, 211, 238, 0.9)";
+  ctx.shadowBlur = 14 * remaining;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.bezierCurveTo(curve.c1x, curve.c1y, curve.c2x, curve.c2y, b.x, b.y);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+/** Shock wave that leaves the playing star on a strong beat. */
+export function paintRipple(ctx: CanvasRenderingContext2D, genre: Genre, point: Point, progress: number, night: boolean) {
+  ctx.strokeStyle = genreColor(genre, (night ? 0.18 : 0.38) * (1 - progress), night);
+  ctx.lineWidth = 2 * (1 - progress) + 0.5;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, point.r + 24 + progress * 130, 0, TAU);
+  ctx.stroke();
+}
+
+/**
+ * Where a walk over `path` (positions of the list) is at step `u`: 0 is the
+ * first star, 1 the second… Neighbors are joined along their link (the same
+ * curve that is drawn); a jump between distant stars goes in a straight line.
+ */
+export function pathPoint(points: Point[], curves: Curve[], path: number[], u: number): { x: number; y: number } | null {
+  if (path.length === 0) return null;
+  const clamped = Math.max(0, Math.min(u, path.length - 1));
+  const step = Math.min(Math.floor(clamped), Math.max(0, path.length - 2));
+  const from = points[path[step]];
+  const to = points[path[Math.min(step + 1, path.length - 1)]];
+  if (!from || !to) return null;
+  const f = clamped - step;
+  const a = path[step];
+  const b = path[Math.min(step + 1, path.length - 1)];
+  if (b === a + 1 && curves[a]) return cubicAt(from, curves[a], to, f);
+  if (b === a - 1 && curves[b]) return cubicAt(to, curves[b], from, 1 - f);
+  return { x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f };
+}
+
+/** A comet: `trail[0]` is its head and the rest fade behind it. `color` is an "r, g, b" triple. */
+export function paintComet(ctx: CanvasRenderingContext2D, trail: { x: number; y: number }[], color: string, fade: number) {
+  if (trail.length === 0) return;
+  for (let i = trail.length - 1; i >= 1; i--) {
+    const weight = 1 - i / trail.length;
+    ctx.fillStyle = `rgba(${color}, ${0.55 * weight * fade})`;
+    ctx.beginPath();
+    ctx.arc(trail[i].x, trail[i].y, 1 + 3 * weight, 0, TAU);
+    ctx.fill();
+  }
+  ctx.shadowColor = `rgba(${color}, 0.95)`;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = `rgba(255, 255, 255, ${fade})`;
+  ctx.beginPath();
+  ctx.arc(trail[0].x, trail[0].y, 4.5, 0, TAU);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+/** Ring that opens on the star a comet has just reached. */
+export function paintArrival(ctx: CanvasRenderingContext2D, point: Point, color: string, progress: number) {
+  ctx.strokeStyle = `rgba(${color}, ${0.8 * (1 - progress)})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, point.r + 6 + progress * 34, 0, TAU);
+  ctx.stroke();
+}
+
+/** Ring around the star chosen with the keyboard. */
+export function paintFocus(ctx: CanvasRenderingContext2D, point: Point) {
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, point.r + 9, 0, TAU);
+  ctx.stroke();
+  ctx.setLineDash([]);
 }

@@ -15,12 +15,14 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { Song, Track } from "@/types/music";
 import type { HistoryEntry } from "@/lib/PlaybackHistory";
 import type { Galaxy, PlayCount } from "@/hooks/useLibrary";
+import type { ListWalk } from "@/hooks/usePlaylist";
 import { genreColor } from "@/lib/genres";
 import {
   CloseIcon,
   DownloadIcon,
   GripIcon,
   HeartIcon,
+  LinkIcon,
   PencilIcon,
   PlayIcon,
   PlusIcon,
@@ -37,6 +39,9 @@ interface ConstellationPanelProps {
   tracks: Track[];
   currentIndex: number;
   visible: boolean[];
+  isPlaying: boolean;
+  /** Traversal being shown: its stars light up one after another */
+  walk: ListWalk | null;
   history: HistoryEntry<Track>[];
   queue: Track[];
   topPlayed: PlayCount[];
@@ -65,6 +70,8 @@ interface ConstellationPanelProps {
   onUndo: () => void;
   onRedo: () => void;
   onExport: () => void;
+  /** Copies a link that carries the whole active playlist */
+  onShare: () => void;
   onImport: (text: string) => void;
 }
 
@@ -81,6 +88,10 @@ function rowIndexAt(x: number, y: number): number | null {
 }
 type GalaxyAction = "create" | "rename" | "delete" | null;
 
+/** Entrance of the content of a tab. */
+const tabMotion = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.2 } };
+const TAB_CLASS = "flex min-h-0 flex-1 flex-col gap-3";
+
 function timeAgo(timestamp: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - timestamp) / 1000));
   if (seconds < 10) return "ahora";
@@ -92,7 +103,7 @@ function timeAgo(timestamp: number, now: number): string {
 
 /** The playlist as a vertical chain of stars, plus the queue, the recently played tracker and the rankings. */
 export default function ConstellationPanel(props: ConstellationPanelProps) {
-  const { tracks, currentIndex, visible, history, queue, topPlayed, favorites, favoriteIds, galaxies, activeGalaxyId, accent } = props;
+  const { tracks, currentIndex, visible, isPlaying, walk, history, queue, topPlayed, favorites, favoriteIds, galaxies, activeGalaxyId, accent } = props;
   const [tab, setTab] = useState<Tab>("constellation");
   const [positionInput, setPositionInput] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -123,6 +134,12 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(timer);
   }, [tab, history]);
+
+  /** Turn of a star inside the walk being shown (0 = where it starts), or null when the walk skips it. */
+  const walkOrder = (index: number): number | null => {
+    if (!walk || index < Math.min(walk.from, walk.to) || index > Math.max(walk.from, walk.to)) return null;
+    return Math.abs(index - walk.from);
+  };
 
   const travel = () => {
     const position = Number.parseInt(positionInput, 10);
@@ -234,6 +251,9 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
           <IconButton title="Importar constelación" onClick={() => fileRef.current?.click()}>
             <UploadIcon width={14} height={14} />
           </IconButton>
+          <IconButton title="Copiar un enlace para compartir esta galaxia" onClick={props.onShare} disabled={tracks.length === 0}>
+            <LinkIcon width={14} height={14} />
+          </IconButton>
           <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={handleFile} />
         </div>
       ) : (
@@ -277,13 +297,16 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
             style={{ color: tab === id ? "#05030f" : "rgba(255,255,255,0.6)" }}
           >
             {tab === id && <motion.span layoutId="panel-tab" className="absolute inset-0 rounded-full" style={{ background: accent }} />}
-            <span className="relative">{label}</span>
+            {/* The label is the key: the queue tab bounces when its count changes */}
+            <motion.span key={label} initial={{ scale: 1.25 }} animate={{ scale: 1 }} className="relative inline-block">
+              {label}
+            </motion.span>
           </button>
         ))}
       </div>
 
       {tab === "constellation" && (
-        <>
+        <motion.div key="constellation" {...tabMotion} className={TAB_CLASS}>
           <div className="flex gap-1.5 text-[11px]">
             <motion.button
               whileTap={{ scale: 0.94 }}
@@ -340,6 +363,10 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
                 const isCurrent = index === currentIndex;
                 // The line shows where the dragged star will land: after the target when moving down
                 const dropEdge = overIndex === index && dragIndex !== null && dragIndex !== index ? (dragIndex < index ? "below" : "above") : null;
+                const hop = walkOrder(index);
+                const hopBefore = index > 0 ? walkOrder(index - 1) : null;
+                // The link above a star is crossed between the turns of the two stars it joins
+                const linkDelay = walk && hop !== null && hopBefore !== null ? (Math.min(hop, hopBefore) + 0.5) * walk.stepMs : null;
                 return (
                   <motion.li
                     key={track.uid}
@@ -351,11 +378,23 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
                     exit={{ opacity: 0, x: 40, transition: { duration: 0.2 } }}
                     transition={{ type: "spring", stiffness: 380, damping: 30 }}
                   >
-                    {index > 0 && <div className="ml-[1.35rem] h-3 w-px bg-gradient-to-b from-white/5 via-white/25 to-white/5" aria-hidden />}
+                    {index > 0 && (
+                      <div className="relative ml-[1.35rem] h-3 w-px bg-gradient-to-b from-white/5 via-white/25 to-white/5" aria-hidden>
+                        {walk && linkDelay !== null && (
+                          <span
+                            key={walk.id}
+                            className="absolute -inset-x-px inset-y-0 rounded-full opacity-0 motion-safe:animate-hop"
+                            style={{ background: accent, boxShadow: `0 0 8px ${accent}`, animationDelay: `${linkDelay}ms` }}
+                          />
+                        )}
+                      </div>
+                    )}
                     <StarRow
                       track={track}
                       position={index + 1}
                       isCurrent={isCurrent}
+                      playing={isCurrent && isPlaying}
+                      hop={walk && hop !== null ? { id: walk.id, delayMs: hop * walk.stepMs } : null}
                       isFavorite={favoriteIds.has(track.id)}
                       accent={accent}
                       badges={[index === 0 && "Inicio", index === tracks.length - 1 && "Final"]}
@@ -398,11 +437,11 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
               <li className="py-8 text-center text-xs text-white/40">La constelación está vacía. Busca canciones para encender estrellas.</li>
             )}
           </ol>
-        </>
+        </motion.div>
       )}
 
       {tab === "queue" && (
-        <>
+        <motion.div key="queue" {...tabMotion} className={TAB_CLASS}>
           <div className="flex items-center justify-between gap-2 text-[11px] text-white/45">
             <p>Suenan antes que el orden normal, la primera que entró primero.</p>
             {queue.length > 0 && (
@@ -435,11 +474,11 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
               <li className="py-8 text-center text-xs text-white/40">La cola está vacía. Usa el botón de cola de una estrella para que suene después.</li>
             )}
           </ol>
-        </>
+        </motion.div>
       )}
 
       {tab === "history" && (
-        <ol className="scroll-thin -mr-2 flex-1 space-y-1.5 overflow-y-auto pr-2">
+        <motion.ol key="history" {...tabMotion} className="scroll-thin -mr-2 flex-1 space-y-1.5 overflow-y-auto pr-2">
           <AnimatePresence initial={false}>
             {history.map((entry) => {
               const stillInList = uidsInList.has(entry.value.uid);
@@ -459,56 +498,85 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
             })}
           </AnimatePresence>
           {history.length === 0 && <li className="py-8 text-center text-xs text-white/40">Aún no has escuchado nada. Dale play a una estrella.</li>}
-        </ol>
+        </motion.ol>
       )}
 
       {tab === "top" && (
-        <div className="scroll-thin -mr-2 flex-1 space-y-4 overflow-y-auto pr-2">
+        <motion.div key="top" {...tabMotion} className="scroll-thin -mr-2 flex-1 space-y-4 overflow-y-auto pr-2">
           <section>
             <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-white/40">Más escuchadas</h3>
             <ol className="space-y-1.5">
-              {topPlayed.map((entry, rank) => (
-                <li key={entry.song.id}>
-                  <SongRow
-                    song={entry.song}
-                    lead={
-                      <span className="w-4 shrink-0 text-center text-xs font-semibold" style={{ color: rank === 0 ? accent : "rgba(255,255,255,0.4)" }}>
-                        {rank + 1}
-                      </span>
-                    }
-                    title="Reproducir"
-                    onClick={() => props.onPlaySong(entry.song)}
+              {/* `layout`: a song that climbs the ranking slides to its new place */}
+              <AnimatePresence initial={false}>
+                {topPlayed.map((entry, rank) => (
+                  <motion.li
+                    key={entry.song.id}
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
                   >
-                    <span className="shrink-0 text-[10px] text-white/45">
-                      {entry.plays} {entry.plays === 1 ? "vez" : "veces"}
-                    </span>
-                  </SongRow>
-                </li>
-              ))}
+                    <SongRow
+                      song={entry.song}
+                      lead={
+                        <span className="w-4 shrink-0 text-center text-xs font-semibold" style={{ color: rank === 0 ? accent : "rgba(255,255,255,0.4)" }}>
+                          {rank + 1}
+                        </span>
+                      }
+                      title="Reproducir"
+                      onClick={() => props.onPlaySong(entry.song)}
+                    >
+                      <motion.span
+                        key={entry.plays}
+                        className="inline-block shrink-0 text-[10px]"
+                        initial={{ scale: 1.4, color: accent }}
+                        animate={{ scale: 1, color: "rgba(255,255,255,0.45)" }}
+                        transition={{ duration: 0.4 }}
+                      >
+                        {entry.plays} {entry.plays === 1 ? "vez" : "veces"}
+                      </motion.span>
+                    </SongRow>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
               {topPlayed.length === 0 && <li className="py-4 text-center text-xs text-white/40">Escucha canciones y aquí aparecerán tus cinco más repetidas.</li>}
             </ol>
           </section>
           <section>
             <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-white/40">Favoritas · {favorites.length}</h3>
             <ol className="space-y-1.5">
-              {favorites.map((song) => (
-                <li key={song.id}>
-                  <SongRow
-                    song={song}
-                    lead={<HeartIcon width={12} height={12} filled className="shrink-0 text-rose-400" />}
-                    title="Reproducir"
-                    onClick={() => props.onPlaySong(song)}
-                  >
-                    <PlayIcon width={11} height={11} className="shrink-0 text-white/30 transition group-hover:text-white" />
-                  </SongRow>
-                </li>
-              ))}
+              <AnimatePresence initial={false}>
+                {favorites.map((song) => (
+                  <motion.li key={song.id} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, x: 40 }}>
+                    <SongRow
+                      song={song}
+                      lead={<HeartIcon width={12} height={12} filled className="shrink-0 text-rose-400" />}
+                      title="Reproducir"
+                      onClick={() => props.onPlaySong(song)}
+                    >
+                      <PlayIcon width={11} height={11} className="shrink-0 text-white/30 transition group-hover:text-white" />
+                    </SongRow>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
               {favorites.length === 0 && <li className="py-4 text-center text-xs text-white/40">Marca con el corazón del reproductor las canciones que más te gusten.</li>}
             </ol>
           </section>
-        </div>
+        </motion.div>
       )}
     </div>
+  );
+}
+
+/** Three bars that dance while the song plays. */
+function Equalizer({ color }: { color: string }) {
+  return (
+    <span className="mr-1.5 inline-flex h-2.5 items-end gap-px" aria-hidden>
+      {[0, 0.3, 0.15].map((delay) => (
+        <span key={delay} className="h-full w-0.5 origin-bottom rounded-full motion-safe:animate-equalize" style={{ background: color, animationDelay: `-${delay}s` }} />
+      ))}
+    </span>
   );
 }
 
@@ -531,6 +599,10 @@ interface StarRowProps {
   track: Track;
   position: number;
   isCurrent: boolean;
+  /** The current star while it is sounding */
+  playing: boolean;
+  /** Its turn in the traversal being shown: `id` restarts the flash, `delayMs` is when it lights up */
+  hop: { id: number; delayMs: number } | null;
   isFavorite: boolean;
   accent: string;
   badges: (string | false)[];
@@ -554,7 +626,7 @@ interface StarRowProps {
 }
 
 function StarRow(props: StarRowProps) {
-  const { track, position, isCurrent, isFavorite, accent, badges, dragging, dropEdge } = props;
+  const { track, position, isCurrent, playing, hop, isFavorite, accent, badges, dragging, dropEdge } = props;
 
   const handleGripKey = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -577,6 +649,14 @@ function StarRow(props: StarRowProps) {
         opacity: dragging ? 0.4 : 1,
       }}
     >
+      {hop && (
+        <span
+          key={hop.id}
+          className="pointer-events-none absolute inset-0 rounded-xl opacity-0 motion-safe:animate-hop"
+          style={{ background: `${accent}26`, boxShadow: `inset 0 0 0 1px ${accent}, 0 0 16px ${accent}66`, animationDelay: `${hop.delayMs}ms` }}
+          aria-hidden
+        />
+      )}
       {dropEdge && (
         <span className={`pointer-events-none absolute inset-x-1 h-0.5 rounded-full ${dropEdge === "above" ? "-top-1.5" : "-bottom-1.5"}`} style={{ background: accent }} aria-hidden />
       )}
@@ -597,7 +677,7 @@ function StarRow(props: StarRowProps) {
       <Cover song={track} size={20} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs text-white">
-          <span className="mr-1.5 text-white/35">{position}</span>
+          {playing ? <Equalizer color={accent} /> : <span className="mr-1.5 text-white/35">{position}</span>}
           {track.title}
           {isFavorite && <HeartIcon width={9} height={9} filled className="ml-1 inline text-rose-400" />}
         </p>

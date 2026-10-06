@@ -12,6 +12,11 @@ interface LyricsPanelProps {
    * tell (a 30-second clip starts somewhere in the middle of the song).
    */
   getSongTime: () => number | null;
+  /**
+   * Given when the listener can tell where the song is: it receives the time
+   * of the line they say is sounding right now.
+   */
+  onAnchor?: (seconds: number) => void;
 }
 
 type Status = "idle" | "loading" | "ready" | "missing" | "error";
@@ -22,11 +27,11 @@ const SYNC_INTERVAL_MS = 200;
 const lyricsCache = new Map<string, LyricsResponse>();
 
 /** Lyrics of the current song. With a synced lyric and a known position, the line being sung is highlighted. */
-export default function LyricsPanel({ track, accent, getSongTime }: LyricsPanelProps) {
+export default function LyricsPanel({ track, accent, getSongTime, onAnchor }: LyricsPanelProps) {
   const [lyrics, setLyrics] = useState<LyricsResponse | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [activeLine, setActiveLine] = useState(-1);
-  const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
+  const lineRefs = useRef<(HTMLElement | null)[]>([]);
   const songId = track?.id;
   const title = track?.title;
   const artist = track?.artist;
@@ -99,26 +104,45 @@ export default function LyricsPanel({ track, accent, getSongTime }: LyricsPanelP
         {status === "error" && <p className="py-6 text-xs text-rose-300">No se pudo consultar el servicio de letras. Intenta de nuevo más tarde.</p>}
         {status === "ready" && lyrics?.instrumental && <p className="py-6 text-xs text-white/45">Esta canción es instrumental: no tiene letra.</p>}
         {status === "ready" && !lyrics?.instrumental && synced
-          ? synced.map((line, index) => (
-              <p
-                key={`${line.time}-${index}`}
-                ref={(element) => {
-                  lineRefs.current[index] = element;
-                }}
-                className="transition-colors duration-300"
-                style={{
-                  color: index === activeLine ? accent : following ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.8)",
-                  fontWeight: index === activeLine ? 600 : 400,
-                }}
-              >
-                {line.text || "♪"}
-              </p>
-            ))
+          ? synced.map((line, index) => {
+              const style = {
+                color: index === activeLine ? accent : following ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.8)",
+                fontWeight: index === activeLine ? 600 : 400,
+              };
+              const setRef = (element: HTMLElement | null) => {
+                lineRefs.current[index] = element;
+              };
+              return onAnchor ? (
+                <button
+                  key={`${line.time}-${index}`}
+                  ref={setRef}
+                  onClick={() => {
+                    onAnchor(line.time);
+                    setActiveLine(index);
+                  }}
+                  title="Este verso está sonando ahora"
+                  className="block w-full rounded-lg transition-colors duration-300 hover:bg-white/5"
+                  style={style}
+                >
+                  {line.text || "♪"}
+                </button>
+              ) : (
+                <p key={`${line.time}-${index}`} ref={setRef} className="transition-colors duration-300" style={style}>
+                  {line.text || "♪"}
+                </p>
+              );
+            })
           : status === "ready" && !lyrics?.instrumental && <p className="whitespace-pre-line text-white/80">{lyrics?.plain}</p>}
       </div>
 
-      {status === "ready" && synced && !following && (
-        <p className="text-center text-[10px] text-white/35">Con la fuente YouTube la letra avanza junto con la canción.</p>
+      {status === "ready" && synced && !lyrics?.instrumental && (onAnchor || !following) && (
+        <p className="text-center text-[10px] text-white/35">
+          {!onAnchor
+            ? "Con la fuente YouTube la letra avanza sola; con la fuente Audio puedes sincronizarla tú."
+            : following
+              ? "¿Va desfasada? Toca el verso que suena ahora."
+              : "El fragmento empieza en mitad de la canción: toca el verso que suena ahora y la letra lo seguirá."}
+        </p>
       )}
     </div>
   );

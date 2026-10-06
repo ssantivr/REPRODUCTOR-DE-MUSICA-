@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { DoublyLinkedList, type SerializedList } from "@/lib/DoublyLinkedList";
+import { DoublyLinkedList, type Node, type SerializedList } from "@/lib/DoublyLinkedList";
+import { HashTable } from "@/lib/HashTable";
 import { ListMetrics, instrumentList } from "@/lib/ListMetrics";
 import { PlaybackHistory, type HistoryEntry } from "@/lib/PlaybackHistory";
 import { Queue } from "@/lib/Queue";
@@ -11,12 +12,40 @@ import type { InsertOperation, PlaylistEvent, PlaylistEventTone, Song, SongBindi
 
 const HISTORY_CAPACITY = 20;
 const UNDO_CAPACITY = 30;
+/** How many random jumps "previous" can walk back in shuffle mode. */
+const TRAIL_CAPACITY = 50;
+/** A jump to a position lights its whole path in about this time, however long it is. */
+const WALK_JUMP_MS = 600;
+const WALK_MAX_STEP_MS = 90;
+const WALK_FADE_MS = 700;
 
-/** One undoable change: the list as it was before it, plus a Spanish label for the interface. */
-interface HistoryStep {
+/** A walk over the nodes from `from` to `to`, one every `stepMs`: the interface lights them in that order. */
+export interface ListWalk {
+  id: number;
+  from: number;
+  to: number;
+  stepMs: number;
+}
+
+/**
+ * One undoable change, stored as the operation that takes the list back (its
+ * inverse) plus a Spanish label for the interface. Adding, removing and moving
+ * a song only need a position, so a step costs O(1) of memory; a new order
+ * (shuffle, import) has no shorter inverse than the order it replaced.
+ */
+type StepChange = { label: string } & (
+  | { kind: "remove"; index: number }
+  | { kind: "insert"; index: number; track: Track }
+  | { kind: "move"; from: number; to: number }
+  | { kind: "order"; tracks: Track[]; currentUid: string | null }
+);
+/** The `id` follows a change from one stack to the other, so the interface can show it travelling. */
+type HistoryStep = StepChange & { id: number };
+
+/** What the interface shows of a step waiting in the undo or the redo stack. */
+export interface StepLabel {
+  id: number;
   label: string;
-  tracks: Track[];
-  currentUid: string | null;
 }
 export const PLAYLIST_FILE_FORMAT = "universo-musical/playlist";
 
@@ -33,13 +62,24 @@ export function usePlaylist(initialSongs: Song[]) {
   const metricsRef = useRef<ListMetrics | null>(null);
   metricsRef.current ??= new ListMetrics();
   const listRef = useRef<DoublyLinkedList<Track> | null>(null);
+  // uid → node: reaches the node of a song in O(1) on average instead of walking the list
+  const nodesRef = useRef<HashTable<Node<Track>> | null>(null);
+  nodesRef.current ??= new HashTable<Node<Track>>();
+  const nodes = nodesRef.current;
   if (listRef.current === null) {
     // Deterministic uids so the server and client renders match
     listRef.current = new DoublyLinkedList(initialSongs.map((song, i) => toTrack(song, `init-${i}-${song.id}`)));
     listRef.current.setCircular(true);
+    for (const node of listRef.current.nodes()) nodes.set(node.value.uid, node);
     instrumentList(listRef.current, metricsRef.current);
   }
   const list = listRef.current;
+
+  /** Rebuilds the uid → node table after the whole list was replaced. O(n) */
+  const reindex = useCallback(() => {
+    nodes.clear();
+    for (const node of list.nodes()) nodes.set(node.value.uid, node);
+  }, [list, nodes]);
 
   const historyRef = useRef<PlaybackHistory<Track> | null>(null);
   historyRef.current ??= new PlaybackHistory<Track>(HISTORY_CAPACITY, (a, b) => a.uid === b.uid);
@@ -61,13 +101,25 @@ export function usePlaylist(initialSongs: Song[]) {
 
   const commit = useCallback(() => setVersion((v) => v + 1), []);
 
+  const [walk, setWalk] = useState<ListWalk | null>(null);
+  const walkCounter = useRef(0);
+  const walkTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  /** Shows the nodes a traversal went through; the walk clears itself once it has been shown. */
+  const startWalk = useCallback((from: number, to: number, stepMs: number) => {
+    walkCounter.current += 1;
+    setWalk({ id: walkCounter.current, from, to, stepMs });
+    clearTimeout(walkTimer.current);
+    walkTimer.current = setTimeout(() => setWalk(null), Math.abs(to - from) * stepMs + WALK_FADE_MS);
+  }, []);
+
   const nextUid = useCallback((song: Song) => {
     uidCounter.current += 1;
     return `${song.id}~${uidCounter.current}`;
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Undo / redo (two stacks of list snapshots)
+  // Undo / redo (two stacks of inverse operations)
   // ---------------------------------------------------------------------------
 
   const undoRef = useRef<Stack<HistoryStep> | null>(null);
@@ -77,36 +129,58 @@ export function usePlaylist(initialSongs: Song[]) {
   const undoStack = undoRef.current;
   const redoStack = redoRef.current;
 
-  /** Snapshot of the list order, taken before a structural change. */
-  const capture = useCallback(
-    (label: string): HistoryStep => ({ label, tracks: list.toArray(), currentUid: list.current?.value.uid ?? null }),
+  /** The current order as a step: the inverse of whatever is about to rearrange the whole list. */
+  const captureOrder = useCallback(
+    (label: string): StepChange => ({ kind: "order", label, tracks: list.toArray(), currentUid: list.current?.value.uid ?? null }),
     [list],
   );
 
   /** Makes a change undoable. A new change invalidates everything that could be redone. */
+  const stepCounter = useRef(0);
   const checkpoint = useCallback(
-    (step: HistoryStep) => {
-      undoStack.push(step);
+    (step: StepChange) => {
+      stepCounter.current += 1;
+      undoStack.push({ ...step, id: stepCounter.current });
       redoStack.clear();
     },
     [undoStack, redoStack],
   );
 
-  /** Rebuilds the list from a snapshot without moving playback when the playing song survives. */
-  const restore = useCallback(
-    (step: HistoryStep) => {
-      // Prefer the live objects: they may carry bindings resolved after the snapshot
-      const live = new Map(list.toArray().map((track) => [track.uid, track]));
-      const playingUid = list.current?.value.uid ?? null;
-      list.clear();
-      for (const track of step.tracks) list.append(live.get(track.uid) ?? track);
-
-      const uids = step.tracks.map((track) => track.uid);
-      let index = playingUid ? uids.indexOf(playingUid) : -1;
-      if (index < 0 && step.currentUid) index = uids.indexOf(step.currentUid);
-      if (index >= 0) list.moveTo(index);
+  /**
+   * Applies a step and returns its own inverse, which is what the opposite
+   * stack keeps: undoing an insertion leaves "insert it again" ready to redo.
+   * Playback does not move while the playing song survives.
+   */
+  const revert = useCallback(
+    (step: StepChange): StepChange | null => {
+      const { label } = step;
+      switch (step.kind) {
+        case "remove": {
+          const track = list.removeAt(step.index);
+          if (!track) return null;
+          nodes.delete(track.uid);
+          return { kind: "insert", label, index: step.index, track };
+        }
+        case "insert":
+          nodes.set(step.track.uid, list.insertAt(step.index, step.track));
+          return { kind: "remove", label, index: step.index };
+        case "move":
+          return list.move(step.from, step.to) ? { kind: "move", label, from: step.to, to: step.from } : null;
+        case "order": {
+          const present = captureOrder(label);
+          // Prefer the live objects: they may carry bindings resolved after the step was saved
+          const live = new Map(list.toArray().map((track) => [track.uid, track]));
+          const playingUid = list.current?.value.uid ?? null;
+          list.clear();
+          for (const track of step.tracks) list.append(live.get(track.uid) ?? track);
+          reindex();
+          const target = (playingUid && nodes.get(playingUid)) || (step.currentUid && nodes.get(step.currentUid)) || null;
+          if (target) list.setCurrent(target);
+          return present;
+        }
+      }
     },
-    [list],
+    [list, nodes, captureOrder, reindex],
   );
 
   // ---------------------------------------------------------------------------
@@ -122,12 +196,11 @@ export function usePlaylist(initialSongs: Song[]) {
   /** Queued songs that are no longer in the list lose their turn. */
   const pruneQueue = useCallback(() => {
     if (upNext.isEmpty) return;
-    const alive = new Set(list.toArray().map((track) => track.uid));
-    upNext.retain((track) => alive.has(track.uid));
+    upNext.retain((track) => nodes.has(track.uid));
     syncQueue();
-  }, [list, upNext, syncQueue]);
+  }, [nodes, upNext, syncQueue]);
 
-  /** Pops a step from one stack, pushes the present onto the other and restores the step. */
+  /** Pops a step from one stack, applies it and pushes its inverse onto the other. */
   const travel = useCallback(
     (from: Stack<HistoryStep>, to: Stack<HistoryStep>, verb: string, emptyMessage: string): boolean => {
       const step = from.pop();
@@ -135,14 +208,14 @@ export function usePlaylist(initialSongs: Song[]) {
         notify("warning", emptyMessage);
         return false;
       }
-      to.push(capture(step.label));
-      restore(step);
+      const inverse = revert(step);
+      if (inverse) to.push({ ...inverse, id: step.id });
       pruneQueue();
       notify("traverse", `${verb}: ${step.label}`);
       commit();
       return true;
     },
-    [capture, restore, pruneQueue, notify, commit],
+    [revert, pruneQueue, notify, commit],
   );
 
   const undo = useCallback(() => travel(undoStack, redoStack, "Deshecho", "No hay nada que deshacer"), [travel, undoStack, redoStack]);
@@ -152,22 +225,39 @@ export function usePlaylist(initialSongs: Song[]) {
   // Navigation
   // ---------------------------------------------------------------------------
 
+  // Shuffle mode: the songs that already sounded in this round, and the way back for "previous"
+  const playedRef = useRef<HashTable<true> | null>(null);
+  playedRef.current ??= new HashTable<true>();
+  const played = playedRef.current;
+  const trailRef = useRef<Stack<string> | null>(null);
+  trailRef.current ??= new Stack<string>(TRAIL_CAPACITY);
+  const trail = trailRef.current;
+
   /** Moves forward through `next`, or jumps randomly in shuffle mode. */
   const next = useCallback((): boolean => {
     // Whoever waits in the queue goes before the normal order
     while (!upNext.isEmpty) {
       const queued = upNext.dequeue();
-      const index = queued ? list.toArray().findIndex((track) => track.uid === queued.uid) : -1;
-      const node = index >= 0 ? list.moveTo(index) : null;
+      const node = queued ? nodes.get(queued.uid) : undefined;
       if (!node) continue;
+      list.setCurrent(node);
       syncQueue();
       notify("navigate", `De la cola: «${node.value.title}»`);
       commit();
       return true;
     }
     if (shuffleRef.current && list.length > 1) {
-      const node = list.jumpRandom();
+      const fromUid = list.current?.value.uid;
+      if (fromUid) played.set(fromUid, true);
+      // No song repeats until every one has sounded; then a new round starts
+      let node = list.jumpRandom(Math.random, (track) => !played.has(track.uid));
+      if (!node) {
+        played.clear();
+        if (fromUid) played.set(fromUid, true);
+        node = list.jumpRandom();
+      }
       if (node) {
+        if (fromUid) trail.push(fromUid);
         notify("navigate", `Salto aleatorio a «${node.value.title}»`);
         commit();
         return true;
@@ -182,10 +272,19 @@ export function usePlaylist(initialSongs: Song[]) {
     notify("navigate", wraps ? `Fin del recorrido: de vuelta al inicio con «${node.value.title}»` : `Siguiente: «${node.value.title}»`);
     commit();
     return true;
-  }, [list, upNext, syncQueue, notify, commit]);
+  }, [list, nodes, upNext, played, trail, syncQueue, notify, commit]);
 
-  /** Moves backward through `prev`. */
+  /** Moves backward through `prev`; in shuffle mode it first walks back the random jumps. */
   const prev = useCallback((): boolean => {
+    while (shuffleRef.current && !trail.isEmpty) {
+      const uid = trail.pop();
+      const node = uid ? nodes.get(uid) : undefined;
+      if (!node) continue; // that song left the list
+      list.setCurrent(node);
+      notify("navigate", `De vuelta a «${node.value.title}»`);
+      commit();
+      return true;
+    }
     const wraps = list.circular && list.current === list.head;
     const node = list.prev();
     if (!node) {
@@ -195,7 +294,7 @@ export function usePlaylist(initialSongs: Song[]) {
     notify("navigate", wraps ? `Inicio del recorrido: salto al final con «${node.value.title}»` : `Anterior: «${node.value.title}»`);
     commit();
     return true;
-  }, [list, notify, commit]);
+  }, [list, nodes, trail, notify, commit]);
 
   /** Jumps to a position (the list uses traverseToIndex internally). */
   const playAt = useCallback(
@@ -210,14 +309,24 @@ export function usePlaylist(initialSongs: Song[]) {
         info && info.steps > 0
           ? ` · ${info.steps} ${info.steps === 1 ? "salto" : "saltos"} desde ${info.from === "head" ? "el inicio" : "el final"}`
           : "";
+      if (info && info.steps > 0) {
+        startWalk(info.from === "head" ? 0 : list.length - 1, index, Math.min(WALK_MAX_STEP_MS, WALK_JUMP_MS / info.steps));
+      }
       notify("traverse", `Viaje a «${node.value.title}»${route}`);
       commit();
       return true;
     },
-    [list, notify, commit],
+    [list, notify, commit, startWalk],
   );
 
-  const indexOfUid = useCallback((uid: string) => list.toArray().findIndex((track) => track.uid === uid), [list]);
+  /** Position of a song: its node comes from the hash table, the position from walking to it. */
+  const indexOfUid = useCallback(
+    (uid: string) => {
+      const node = nodes.get(uid);
+      return node ? list.indexOfNode(node) : -1;
+    },
+    [list, nodes],
+  );
 
   // ---------------------------------------------------------------------------
   // Structure
@@ -228,58 +337,57 @@ export function usePlaylist(initialSongs: Song[]) {
     (song: Song, operation: InsertOperation, index = 0): number => {
       const track = toTrack(toSong(song), nextUid(song));
       let position: number;
-      checkpoint(capture(`agregar «${song.title}»`));
+      let node: Node<Track>;
 
       if (operation === "append") {
-        list.append(track);
+        node = list.append(track);
         position = list.length - 1;
         notify("add", `«${song.title}» se unió al final de la constelación`);
       } else if (operation === "prepend") {
-        list.prepend(track);
+        node = list.prepend(track);
         position = 0;
         notify("add", `«${song.title}» ahora abre la constelación`);
       } else {
         position = Math.max(0, Math.min(index, list.length));
-        list.insertAt(position, track);
+        node = list.insertAt(position, track);
         notify("add", `«${song.title}» entró en la posición ${position + 1}`);
       }
 
+      nodes.set(track.uid, node);
+      checkpoint({ kind: "remove", label: `agregar «${song.title}»`, index: position });
       commit();
       return position;
     },
-    [list, notify, commit, nextUid, capture, checkpoint],
+    [list, nodes, notify, commit, nextUid, checkpoint],
   );
 
   /** Removes by index. The list moves its cursor to a neighbor when needed. */
   const remove = useCallback(
     (index: number): Track | null => {
-      const step = capture("");
       const removed = list.removeAt(index);
       if (!removed) return null; // nothing changed: skip the re-render
-      step.label = `quitar «${removed.title}»`;
-      checkpoint(step);
+      nodes.delete(removed.uid);
+      checkpoint({ kind: "insert", label: `quitar «${removed.title}»`, index, track: removed });
       pruneQueue();
       notify("remove", `«${removed.title}» salió de la constelación`);
       commit();
       return removed;
     },
-    [list, notify, commit, capture, checkpoint, pruneQueue],
+    [list, nodes, notify, commit, checkpoint, pruneQueue],
   );
 
   /** Moves a song to another position by relinking its node (no node is created). */
   const move = useCallback(
     (from: number, to: number): boolean => {
       if (from === to) return false;
-      const step = capture("");
-      const title = step.tracks[from]?.title;
+      const title = list.traverseToIndex(from)?.value.title;
       if (title === undefined || !list.move(from, to)) return false;
-      step.label = `mover «${title}»`;
-      checkpoint(step);
+      checkpoint({ kind: "move", label: `mover «${title}»`, from: to, to: from });
       notify("traverse", `«${title}» pasó de la posición ${from + 1} a la ${to + 1}`);
       commit();
       return true;
     },
-    [list, notify, commit, capture, checkpoint],
+    [list, notify, commit, checkpoint],
   );
 
   /** Adds the song at `index` to the back of the "play next" queue. */
@@ -311,15 +419,15 @@ export function usePlaylist(initialSongs: Song[]) {
     syncQueue();
   }, [upNext, syncQueue]);
 
-  /** Attaches playback bindings to every node holding the song with this uid. */
+  /** Attaches playback bindings to the node holding the song with this uid. */
   const enrich = useCallback(
     (uid: string, bindings: SongBindings) => {
-      for (const node of list.nodes()) {
-        if (node.value.uid === uid) node.value = { ...node.value, ...bindings };
-      }
+      const node = nodes.get(uid);
+      if (!node) return;
+      node.value = { ...node.value, ...bindings };
       commit();
     },
-    [list, commit],
+    [nodes, commit],
   );
 
   // ---------------------------------------------------------------------------
@@ -337,28 +445,36 @@ export function usePlaylist(initialSongs: Song[]) {
     [list, notify, commit],
   );
 
+  /** A new shuffle session: nothing has sounded yet and there is no way back. */
+  const resetShuffle = useCallback(() => {
+    played.clear();
+    trail.clear();
+  }, [played, trail]);
+
   const toggleShuffleMode = useCallback(() => {
     const enabled = !shuffleRef.current;
     shuffleRef.current = enabled;
     setShuffleMode(enabled);
-    notify("navigate", enabled ? "Modo aleatorio: «Siguiente» salta a una estrella al azar" : "Modo aleatorio desactivado");
-  }, [notify]);
+    resetShuffle();
+    notify("navigate", enabled ? "Modo aleatorio: «Siguiente» salta a una estrella que aún no ha sonado" : "Modo aleatorio desactivado");
+  }, [notify, resetShuffle]);
 
   /** Rearranges the whole list by relinking its nodes. */
   const shuffleOrder = useCallback(() => {
     if (list.length < 2) return;
-    checkpoint(capture("mezclar la constelación"));
+    checkpoint(captureOrder("mezclar la constelación"));
     list.shuffle();
     notify("traverse", "Constelación mezclada: nuevo orden, mismas estrellas");
     commit();
-  }, [list, notify, commit, capture, checkpoint]);
+  }, [list, notify, commit, captureOrder, checkpoint]);
 
-  /** Walks the whole list (printList logs it to the developer console). */
-  const traverseAll = useCallback((): number => {
+  /** Walks the whole list (printList logs it to the developer console), one node every `stepMs`. */
+  const traverseAll = useCallback((stepMs: number): number => {
     list.printList((track) => track.title);
+    if (list.length > 0) startWalk(0, list.length - 1, stepMs);
     notify("traverse", `Recorrido completo: ${list.length} ${list.length === 1 ? "estrella" : "estrellas"} de inicio a fin`);
     return list.length;
-  }, [list, notify]);
+  }, [list, notify, startWalk]);
 
   // ---------------------------------------------------------------------------
   // Serialization
@@ -377,11 +493,12 @@ export function usePlaylist(initialSongs: Song[]) {
       try {
         const data = JSON.parse(text) as { format?: unknown };
         if (data.format !== PLAYLIST_FILE_FORMAT) throw new Error("Unknown format");
-        const step = capture("importar una constelación");
+        const step = captureOrder("importar una constelación");
         const count = list.importJSON(data, (raw) => {
           const song = parseSong(raw);
           return song ? toTrack(song, nextUid(song)) : null;
         });
+        reindex();
         checkpoint(step);
         pruneQueue();
         setRepeatState(list.circular);
@@ -393,7 +510,7 @@ export function usePlaylist(initialSongs: Song[]) {
         return false;
       }
     },
-    [list, notify, commit, nextUid, capture, checkpoint, pruneQueue],
+    [list, notify, commit, nextUid, captureOrder, checkpoint, pruneQueue, reindex],
   );
 
   /** Plain snapshot of the list (no notification): what gets saved in the browser. */
@@ -413,8 +530,10 @@ export function usePlaylist(initialSongs: Song[]) {
       } catch {
         return false;
       }
+      reindex();
       undoStack.clear();
       redoStack.clear();
+      resetShuffle();
       upNext.clear();
       syncQueue();
       setRepeatState(list.circular);
@@ -422,7 +541,7 @@ export function usePlaylist(initialSongs: Song[]) {
       commit();
       return true;
     },
-    [list, undoStack, redoStack, upNext, syncQueue, notify, commit, nextUid],
+    [list, undoStack, redoStack, upNext, syncQueue, notify, commit, nextUid, reindex, resetShuffle],
   );
 
   // ---------------------------------------------------------------------------
@@ -439,16 +558,23 @@ export function usePlaylist(initialSongs: Song[]) {
   const snapshot = useMemo(() => {
     void version; // the list is mutable: `version` signals that it changed
     const current = list.current;
+    const labels = (stack: Stack<HistoryStep>): StepLabel[] => stack.toArray().map(({ id, label }) => ({ id, label }));
     return {
       tracks: list.toArray(),
       currentTrack: current?.value ?? null,
       currentIndex: current ? list.indexOfNode(current) : -1,
+      // Top first: the step that the next undo / redo would apply
+      undoSteps: labels(undoStack),
+      redoSteps: labels(redoStack),
     };
-  }, [list, version]);
+  }, [list, version, undoStack, redoStack]);
 
   return {
     ...snapshot,
     metrics: metricsRef.current,
+    /** uid → node table, exposed so the interface can draw its buckets */
+    nodeTable: nodes,
+    announce: notify,
     undo,
     redo,
     canUndo: !undoStack.isEmpty,
@@ -459,6 +585,7 @@ export function usePlaylist(initialSongs: Song[]) {
     toggleShuffleMode,
     shuffleOrder,
     event,
+    walk,
     history,
     recordPlay,
     next,
