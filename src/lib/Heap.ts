@@ -7,6 +7,8 @@
  */
 export class Heap<T> {
   private readonly items: T[] = [];
+  /** Optional observer of every swap (the two positions exchanged), used to show the heap moving */
+  onSwap: ((a: number, b: number) => void) | null = null;
 
   constructor(
     private readonly compare: (a: T, b: T) => number,
@@ -73,6 +75,12 @@ export class Heap<T> {
 
   private swap(a: number, b: number): void {
     [this.items[a], this.items[b]] = [this.items[b], this.items[a]];
+    this.onSwap?.(a, b);
+  }
+
+  /** Copy of the underlying array: position 0 is the root. */
+  toArray(): T[] {
+    return this.items.slice();
   }
 }
 

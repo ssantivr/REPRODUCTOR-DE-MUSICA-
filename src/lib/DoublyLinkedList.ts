@@ -101,17 +101,22 @@ export class DoublyLinkedList<T> {
    *  - index <= 0       → prepend
    *  - index >= length  → append
    *  - otherwise the node is linked between (index - 1) and index.
+   * O(n): reaching the position takes at most n/2 steps; the linking itself is O(1).
    */
   insertAt(index: number, value: T): Node<T> {
     if (index <= 0) return this.prepend(value);
     if (index >= this.length) return this.append(value);
 
     const leader = this.traverseToIndex(index - 1);
-    if (leader === null || leader.next === null) {
-      return this.append(value);
-    }
+    return leader === null ? this.append(value) : this.insertAfter(leader, value);
+  }
 
+  /** Links a new value right after a node that is already at hand: no traversal, so O(1). */
+  insertAfter(leader: Node<T>, value: T): Node<T> {
     const follower = leader.next;
+    // In circular mode the tail's `next` is the head: after the tail still means "at the end"
+    if (leader === this.tail || follower === null) return this.append(value);
+
     const newNode = new Node(value);
 
     // leader ⇄ newNode ⇄ follower
@@ -124,12 +129,23 @@ export class DoublyLinkedList<T> {
     return newNode;
   }
 
-  /** Removes the node at `index` and returns its value (null when it does not exist). */
+  /**
+   * Removes the node at `index` and returns its value (null when it does not exist).
+   * O(n): reaching the position takes at most n/2 steps; the unlinking itself is O(1).
+   */
   removeAt(index: number): T | null {
     const nodeToRemove = this.traverseToIndex(index);
-    if (nodeToRemove === null) return null;
+    return nodeToRemove === null ? null : this.removeNode(nodeToRemove);
+  }
 
+  /**
+   * Unlinks a node that is already at hand. Only its two neighbors change, so
+   * it is O(1) wherever the node sits: the reason to keep both `prev` and `next`.
+   * Returns its value, or null when the node was already unlinked.
+   */
+  removeNode(nodeToRemove: Node<T>): T | null {
     const { prev, next } = nodeToRemove;
+    if (prev === null && next === null && nodeToRemove !== this.head) return null;
 
     if (this.length === 1) {
       this.head = null;
@@ -202,7 +218,7 @@ export class DoublyLinkedList<T> {
   /**
    * Returns the node at `index`, or null when the index is invalid.
    * Walks forward from the head for the first half and backward from the
-   * tail for the second half, so the worst case is O(n/2).
+   * tail for the second half: O(n), but never more than n/2 steps.
    */
   traverseToIndex(index: number): Node<T> | null {
     if (!Number.isInteger(index) || index < 0 || index >= this.length) {
@@ -269,6 +285,11 @@ export class DoublyLinkedList<T> {
     return node;
   }
 
+  /** Places the cursor on a node of this list that is already at hand. O(1) */
+  setCurrent(node: Node<T>): void {
+    this.current = node;
+  }
+
   // ---------------------------------------------------------------------------
   // Loop / repeat mode
   // ---------------------------------------------------------------------------
@@ -318,15 +339,19 @@ export class DoublyLinkedList<T> {
     this.sealEnds();
   }
 
-  /** Moves the cursor to a random node different from the current one. */
-  jumpRandom(random: () => number = Math.random): Node<T> | null {
+  /**
+   * Moves the cursor to a random node different from the current one. With
+   * `eligible`, only the nodes whose value passes it can be chosen; returns
+   * null (and the cursor stays) when none can. O(n)
+   */
+  jumpRandom(random: () => number = Math.random, eligible: (value: T) => boolean = () => true): Node<T> | null {
     if (this.length === 0) return null;
     if (this.length === 1) return this.moveTo(0);
 
-    const currentIndex = this.current ? this.indexOfNode(this.current) : -1;
-    let index = Math.floor(random() * (this.length - 1));
-    if (index >= currentIndex && currentIndex >= 0) index++; // skip the current node
-    return this.moveTo(index);
+    const candidates = this.nodes().filter((node) => node !== this.current && eligible(node.value));
+    if (candidates.length === 0) return null;
+    this.current = candidates[Math.floor(random() * candidates.length)];
+    return this.current;
   }
 
   // ---------------------------------------------------------------------------

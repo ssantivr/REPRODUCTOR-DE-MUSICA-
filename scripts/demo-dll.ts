@@ -5,11 +5,15 @@
 import { DoublyLinkedList } from "../src/lib/DoublyLinkedList";
 import { Heap, topK } from "../src/lib/Heap";
 import { ListMetrics, MEASURED_OPERATIONS, THEORETICAL_COMPLEXITY } from "../src/lib/ListMetrics";
-import { BinarySearchTree, HashTable, MusicIndex } from "../src/lib/MusicIndex";
+import { AvlTree } from "../src/lib/AvlTree";
+import { HashTable } from "../src/lib/HashTable";
+import { MusicIndex } from "../src/lib/MusicIndex";
 import { activeLineIndex, parseLrc } from "../src/lib/lyrics";
 import { PlaybackHistory } from "../src/lib/PlaybackHistory";
 import { Queue } from "../src/lib/Queue";
+import { SuggestionIndex } from "../src/lib/search/suggestions";
 import { Stack } from "../src/lib/Stack";
+import { Trie } from "../src/lib/Trie";
 import { CATALOG } from "../src/lib/catalog";
 import { DEFAULT_FILTER, matchesFilter, type SpatialFilter } from "../src/lib/spatialFilter";
 import { runStressTest } from "../src/lib/stressTest";
@@ -65,6 +69,18 @@ check('removeAt(2) returns "Get Lucky"', playlist.removeAt(2) === "Get Lucky");
 check("removeAt(invalid) → null", playlist.removeAt(10) === null);
 checkPointers(playlist);
 
+console.log("\n== removeNode / insertAfter (O(1) with the node at hand) ==");
+const chain = new DoublyLinkedList(["A", "B", "C", "D"]);
+const nodeC = chain.traverseToIndex(2);
+chain.lastTraversal = null;
+check("removeNode unlinks without any traversal", nodeC !== null && chain.removeNode(nodeC) === "C" && chain.lastTraversal === null && chain.toArray().join() === "A,B,D");
+check("removing the same node again changes nothing", nodeC !== null && chain.removeNode(nodeC) === null && chain.length === 3);
+const nodeA = chain.head;
+check("insertAfter links right after the node", nodeA !== null && chain.insertAfter(nodeA, "X").value === "X" && chain.toArray().join() === "A,X,B,D");
+chain.setCircular(true);
+check("insertAfter the tail appends, also in circular mode", chain.tail !== null && chain.insertAfter(chain.tail, "Z") === chain.tail && chain.toArray().join() === "A,X,B,D,Z");
+checkPointers(chain, "chain is intact after removeNode / insertAfter");
+
 console.log("\n== next / prev (linear) ==");
 playlist.moveTo(0);
 check('next() → "Blinding Lights"', playlist.next()?.value === "Blinding Lights");
@@ -101,6 +117,9 @@ playlist.shuffle(mulberry32(3));
 checkPointers(playlist, "circular chain is intact after shuffle");
 const jumped = playlist.jumpRandom(mulberry32(1));
 check("jumpRandom lands on a different node", jumped !== null && jumped !== cursorBefore);
+const allowed = playlist.toArray().find((value) => value !== playlist.current?.value);
+check("jumpRandom only picks eligible nodes", playlist.jumpRandom(mulberry32(5), (value) => value === allowed)?.value === allowed);
+check("jumpRandom with nothing eligible → null and the cursor stays", playlist.jumpRandom(mulberry32(5), () => false) === null && playlist.current?.value === allowed);
 
 console.log("\n== move (reorder by relinking) ==");
 const order = new DoublyLinkedList(["A", "B", "C", "D", "E"]);
@@ -214,16 +233,23 @@ check(
   activeLineIndex(lrc, 0) === -1 && activeLineIndex(lrc, 5) === 0 && activeLineIndex(lrc, 61.9) === 1 && activeLineIndex(lrc, 999) === 3,
 );
 
-console.log("\n== secondary index (hash table + BST) ==");
+console.log("\n== secondary index (hash table + AVL tree) ==");
 const table = new HashTable<number>(2);
 for (let i = 0; i < 100; i++) table.set(`key-${i}`, i);
 table.set("key-7", 700);
 check("hash table survives resizing and overwrites", table.size === 100 && table.get("key-7") === 700 && table.get("key-99") === 99 && table.get("nope") === undefined);
-const tree = new BinarySearchTree<string>();
-tree.insertSorted([[60, "a"], [90, "b"], [90, "c"], [120, "d"], [180, "e"]]);
-// Values sharing a key (b and c at 90) keep no particular order between themselves
-check("BST range query is inclusive", tree.range(90, 120).sort().join() === "b,c,d" && tree.range(61, 89).length === 0 && tree.range(181, 300).length === 0);
-check("BST range query returns keys in ascending order", tree.range(0, 300).join().replace("c,b", "b,c") === "a,b,c,d,e");
+check("hash table deletes a key and only that key", table.delete("key-7") && !table.delete("key-7") && !table.has("key-7") && table.has("key-8") && table.size === 99);
+const tree = new AvlTree<string>();
+([[60, "a"], [90, "b"], [90, "c"], [120, "d"], [180, "e"]] as const).forEach(([key, value]) => tree.insert(key, value));
+check("AVL range query is inclusive", tree.range(90, 120).join() === "b,c,d" && tree.range(61, 89).length === 0 && tree.range(181, 300).length === 0);
+check("AVL range query returns keys in ascending order", tree.range(0, 300).join() === "a,b,c,d,e");
+// The worst case of a plain BST: keys arriving in order would make a 1000-level chain
+const sorted = new AvlTree<number>();
+for (let key = 1; key <= 1000; key++) sorted.insert(key, key);
+check(`1000 keys inserted in order stay balanced (height ${sorted.height}, not 1000)`, sorted.isBalanced() && sorted.height <= 11);
+for (let key = 1; key <= 1000; key += 2) sorted.remove(key, key);
+check("still balanced after removing every other key", sorted.isBalanced() && sorted.size === 500 && sorted.range(1, 10).join() === "2,4,6,8,10");
+check("removing a value that is not there changes nothing", !sorted.remove(3, 3) && !sorted.remove(2, 99) && sorted.size === 500);
 const index = new MusicIndex(CATALOG);
 check("byGenre matches a full scan", index.byGenre("rock").length === CATALOG.filter((song) => song.genre === "rock").length);
 check("byArtist ignores case and accents", index.byArtist("QUEEN").some((song) => song.id === "bohemian-rhapsody") && index.byArtist("nobody").length === 0);
@@ -242,6 +268,27 @@ check(
     return actual.size === expected.length && expected.every((song) => actual.has(song));
   }),
 );
+
+const synced = new MusicIndex(CATALOG.slice(0, 20));
+check("sync touches only the songs that changed", synced.sync(CATALOG.slice(5)) === 5 + (CATALOG.length - 20) && synced.size === CATALOG.length - 5);
+check(
+  "a synced index answers like one built from scratch",
+  filters.every((filter) => {
+    const expected = CATALOG.slice(5).filter((song) => matchesFilter(song, filter));
+    const actual = synced.filter(filter);
+    return actual.size === expected.length && expected.every((song) => actual.has(song));
+  }),
+);
+
+console.log("\n== trie (autocomplete) ==");
+const trie = new Trie<string>();
+["car", "card", "care", "cat", "dog"].forEach((word) => trie.insert(word, word.toUpperCase()));
+check("startsWith returns every word under a prefix, shortest first", trie.startsWith("car").join() === "CAR,CARD,CARE" && trie.startsWith("ca").length === 4);
+check("startsWith respects the limit and unknown prefixes", trie.startsWith("c", 2).length === 2 && trie.startsWith("cow").length === 0 && trie.startsWith("").length === 5);
+const suggestionIndex = new SuggestionIndex(CATALOG);
+check("a prefix matches from the start of any word, ignoring accents and case", suggestionIndex.suggest("RHAP").some((item) => item.text === "Bohemian Rhapsody") && suggestionIndex.suggest("áfri").some((item) => item.text.startsWith("Waka Waka")));
+check("artists are suggested once, by their main name", suggestionIndex.suggest("daddy").filter((item) => item.kind === "artist").length === 1);
+check("short prefixes and what is already fully typed suggest nothing", suggestionIndex.suggest("b").length === 0 && suggestionIndex.suggest("gasolina").length === 0);
 
 console.log("\n== empty the list ==");
 while (playlist.length > 0) playlist.removeAt(0);

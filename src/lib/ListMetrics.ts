@@ -5,8 +5,8 @@ export type MeasuredOperation = (typeof MEASURED_OPERATIONS)[number];
 
 export const THEORETICAL_COMPLEXITY: Record<MeasuredOperation, string> = {
   append: "O(1)",
-  removeAt: "O(n/2)",
-  traverseToIndex: "O(n/2)",
+  removeAt: "O(n)",
+  traverseToIndex: "O(n)",
   shuffle: "O(n)",
 };
 
