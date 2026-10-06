@@ -49,9 +49,9 @@ export default function FilterPanel({ filter, visibleCount, total, accent, onCha
                 aria-pressed={active}
                 className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition"
                 style={{
-                  borderColor: active ? genreColor(genre) : "rgba(255,255,255,0.1)",
+                  borderColor: active ? genreColor(genre) : "rgb(var(--ink) / 0.1)",
                   background: active ? genreColor(genre, 0.18) : "transparent",
-                  color: active ? "#fff" : "rgba(255,255,255,0.6)",
+                  color: active ? "rgb(var(--ink))" : "rgb(var(--ink) / 0.6)",
                 }}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: genreColor(genre) }} />

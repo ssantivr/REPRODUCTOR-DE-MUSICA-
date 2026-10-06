@@ -37,7 +37,9 @@ import {
   pathPoint,
   type BackgroundFx,
   type Star,
+  setCanvasTheme,
 } from "@/lib/universe/painters";
+import type { Theme } from "@/lib/theme";
 
 export interface CanvasInsets {
   top: number;
@@ -56,6 +58,7 @@ interface UniverseCanvasProps {
   tracks: Track[];
   currentUid: string | null;
   mode: VisualMode;
+  theme: Theme;
   isPlaying: boolean;
   insets: CanvasInsets;
   traversal: TraversalRequest | null;
@@ -117,6 +120,8 @@ export default function UniverseCanvas(props: UniverseCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const { theme } = props;
+  useEffect(() => setCanvasTheme(theme), [theme]);
 
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
   const particlesRef = useRef(new Map<string, Particle>());

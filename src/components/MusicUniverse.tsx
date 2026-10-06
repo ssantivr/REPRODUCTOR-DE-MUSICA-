@@ -5,6 +5,7 @@ import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { usePlaylist } from "@/hooks/usePlaylist";
 import { useLibrary } from "@/hooks/useLibrary";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useTheme } from "@/hooks/useTheme";
 import { INITIAL_PLAYLIST } from "@/lib/catalog";
 import { MODES, MODE_BY_ID } from "@/lib/modes";
 import { CLIP_SECONDS, PREVIEW_SECONDS, SynthEngine } from "@/lib/audioEngine";
@@ -25,7 +26,7 @@ import DiagnosticsPanel from "./DiagnosticsPanel";
 import LyricsPanel from "./LyricsPanel";
 import StructuresPanel from "./structures/StructuresPanel";
 import type { Rotation } from "./structures/AvlView";
-import { CloseIcon, FilterIcon, ListIcon, LyricsIcon, SearchIcon, SparkIcon, TreeIcon } from "./icons";
+import { CloseIcon, FilterIcon, ListIcon, LyricsIcon, MoonIcon, SearchIcon, SparkIcon, SunIcon, TreeIcon } from "./icons";
 
 const panelMotion = (side: "left" | "right") => ({
   initial: { opacity: 0, x: side === "left" ? -40 : 40 },
@@ -74,7 +75,9 @@ function Universe() {
     setDiagnosticsOpen(false);
   }, []);
   const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const accent = MODE_BY_ID[mode].accent;
+  const { theme, toggleTheme } = useTheme();
+  // Over the light theme the accent is also text: it needs a darker shade to stay readable
+  const accent = theme === "light" ? MODE_BY_ID[mode].accentOnLight : MODE_BY_ID[mode].accent;
   // The app's own engine plays these two; YouTube and Spotify run inside their embedded players
   const ownAudio = source === "preview" || source === "synth";
   // Secondary index (hash tables + AVL tree): when the list changes it only adds and removes
@@ -593,13 +596,13 @@ function Universe() {
   const embedVisible = !ownAudio && currentTrack !== null;
   const embedHeight = source === "youtube" ? 200 : 170;
   const insets: CanvasInsets = {
-    top: isDesktop ? 90 : headerHeight + 8,
+    top: headerHeight + 8,
     bottom: dockHeight + (embedVisible ? embedHeight : 0),
     left: isDesktop && searchOpen ? 352 : 16,
     right: isDesktop && listOpen ? 384 : 16,
   };
 
-  const panelClass = isDesktop ? "top-20" : "under-header inset-x-3";
+  const panelClass = isDesktop ? "under-header" : "under-header inset-x-3";
   const panelStyle = { bottom: dockHeight + 8 };
   // Read by the .under-header and .fit-stage classes: the free space between the header and the dock
   const stageVars = {
@@ -614,6 +617,7 @@ function Universe() {
         tracks={tracks}
         currentUid={currentTrack?.uid ?? null}
         mode={mode}
+        theme={theme}
         isPlaying={isPlaying}
         insets={insets}
         traversal={traversal}
@@ -630,11 +634,21 @@ function Universe() {
 
       {/* Header */}
       <header ref={headerRef} className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-center justify-between gap-2 px-3 pt-3 sm:gap-3 sm:px-4 sm:pt-4 lg:flex-nowrap">
-        <div className="pointer-events-auto">
-          <h1 className="text-lg font-semibold tracking-tight">
-            Universo <span style={{ color: accent }}>Musical</span>
-          </h1>
-          <p className="hidden text-[10px] uppercase tracking-[0.2em] text-white/40 sm:block">Constelación doblemente enlazada</p>
+        <div className="pointer-events-auto flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-start">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">
+              Universo <span style={{ color: accent }}>Musical</span>
+            </h1>
+            <p className="hidden text-[10px] uppercase tracking-[0.2em] text-white/40 sm:block">Constelación doblemente enlazada</p>
+          </div>
+          <button
+            onClick={toggleTheme}
+            className="glass flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
+            aria-label={theme === "light" ? "Cambiar a modo oscuro" : "Cambiar a modo claro"}
+            title={theme === "light" ? "Modo oscuro" : "Modo claro"}
+          >
+            {theme === "light" ? <MoonIcon width={15} height={15} /> : <SunIcon width={15} height={15} />}
+          </button>
         </div>
 
         <div className="pointer-events-auto order-3 flex w-full flex-col items-center gap-1 lg:order-none lg:w-auto">
@@ -703,7 +717,7 @@ function Universe() {
             style={{ color: listOpen ? accent : undefined }}
             aria-pressed={listOpen}
           >
-            <ListIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Constelación</span> ({tracks.length})
+            <ListIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Constelación ({tracks.length})</span>
           </button>
         </nav>
       </header>

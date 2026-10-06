@@ -78,7 +78,7 @@ export default function DiagnosticsPanel({ metrics, size, accent }: DiagnosticsP
                     key={stats.calls}
                     className="inline-block"
                     initial={{ y: -4, color: accent }}
-                    animate={{ y: 0, color: "rgba(255,255,255,0.75)" }}
+                    animate={{ y: 0, color: "var(--ink-75)" }}
                     transition={{ duration: 0.45 }}
                   >
                     {stats.calls}

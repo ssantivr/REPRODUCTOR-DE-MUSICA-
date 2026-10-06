@@ -1,6 +1,56 @@
 import type { Genre, Track, VisualMode } from "@/types/music";
-import { genreColor } from "../genres";
+import type { Theme } from "../theme";
+import { genreColor as themedGenreColor } from "../genres";
 import { TAU, type Area, type Point } from "./layout";
+
+/** What changes between the dark sky and the light one. `ink` is an "r, g, b" triple for lines and labels. */
+interface SkyPalette {
+  light: boolean;
+  ink: string;
+  /** Background stars are dimmer over a light sky */
+  starDim: number;
+  universe: string;
+  /** Strength of the two nebulas of the universe mode */
+  nebula: [number, number];
+  flow: [string, string, string];
+  energy: [string, string, string];
+  night: string;
+  moon: string;
+}
+
+const PALETTES: Record<Theme, SkyPalette> = {
+  dark: {
+    light: false,
+    ink: "255, 255, 255",
+    starDim: 1,
+    universe: "#090A0F",
+    nebula: [0.28, 0.16],
+    flow: ["#020b16", "#03121f", "#0d0518"],
+    energy: ["#2a0718", "#0b0716", "#03161f"],
+    night: "#010207",
+    moon: "148, 163, 184",
+  },
+  light: {
+    light: true,
+    ink: "15, 23, 42",
+    starDim: 0.45,
+    universe: "#f3f4fa",
+    nebula: [0.14, 0.1],
+    flow: ["#e3f3fb", "#eef6fb", "#f4eafb"],
+    energy: ["#fde6ed", "#f4f2fa", "#e2f5f5"],
+    night: "#dde2ec",
+    moon: "71, 85, 105",
+  },
+};
+
+let palette = PALETTES.dark;
+
+/** The canvas cannot read CSS variables: the theme reaches the painters through here. */
+export function setCanvasTheme(theme: Theme) {
+  palette = PALETTES[theme];
+}
+
+const genreColor = (genre: Genre, alpha = 1, night = false) => themedGenreColor(genre, alpha, night, palette.light);
 
 export interface Star {
   x: number;
@@ -37,9 +87,9 @@ export function paintBackground(
   ctx.globalAlpha = fx.opacity;
   if (mode === "flow") {
     const river = ctx.createLinearGradient(0, 0, w, 0);
-    river.addColorStop(0, "#020b16");
-    river.addColorStop(0.5, "#03121f");
-    river.addColorStop(1, "#0d0518");
+    river.addColorStop(0, palette.flow[0]);
+    river.addColorStop(0.5, palette.flow[1]);
+    river.addColorStop(1, palette.flow[2]);
     ctx.fillStyle = river;
     ctx.fillRect(0, 0, w, h);
     ctx.globalAlpha = 1;
@@ -48,38 +98,38 @@ export function paintBackground(
 
   if (mode === "energy") {
     const gradient = ctx.createLinearGradient(0, 0, 0, h);
-    gradient.addColorStop(0, "#2a0718");
-    gradient.addColorStop(0.5, "#0b0716");
-    gradient.addColorStop(1, "#03161f");
+    gradient.addColorStop(0, palette.energy[0]);
+    gradient.addColorStop(0.5, palette.energy[1]);
+    gradient.addColorStop(1, palette.energy[2]);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
   } else if (mode === "night") {
-    ctx.fillStyle = "#010207";
+    ctx.fillStyle = palette.night;
     ctx.fillRect(0, 0, w, h);
     const moon = ctx.createRadialGradient(w * 0.82, h * 0.18, 0, w * 0.82, h * 0.18, Math.max(w, h) * 0.35);
-    moon.addColorStop(0, "rgba(148, 163, 184, 0.12)");
-    moon.addColorStop(1, "rgba(148, 163, 184, 0)");
+    moon.addColorStop(0, `rgba(${palette.moon}, 0.12)`);
+    moon.addColorStop(1, `rgba(${palette.moon}, 0)`);
     ctx.fillStyle = moon;
     ctx.fillRect(0, 0, w, h);
   } else {
-    ctx.fillStyle = "#090A0F";
+    ctx.fillStyle = palette.universe;
     ctx.fillRect(0, 0, w, h);
     const big = Math.max(w, h);
     const nebulaA = ctx.createRadialGradient(w * (0.45 + 0.1 * Math.sin(t * 0.05)), h * 0.45, 0, w * 0.45, h * 0.45, big * 0.6);
-    nebulaA.addColorStop(0, "rgba(109, 40, 217, 0.28)");
+    nebulaA.addColorStop(0, `rgba(109, 40, 217, ${palette.nebula[0]})`);
     nebulaA.addColorStop(1, "rgba(109, 40, 217, 0)");
     ctx.fillStyle = nebulaA;
     ctx.fillRect(0, 0, w, h);
     const nebulaB = ctx.createRadialGradient(w * 0.75, h * (0.6 + 0.1 * Math.cos(t * 0.04)), 0, w * 0.75, h * 0.6, big * 0.45);
-    nebulaB.addColorStop(0, "rgba(14, 165, 233, 0.16)");
+    nebulaB.addColorStop(0, `rgba(14, 165, 233, ${palette.nebula[1]})`);
     nebulaB.addColorStop(1, "rgba(14, 165, 233, 0)");
     ctx.fillStyle = nebulaB;
     ctx.fillRect(0, 0, w, h);
   }
 
-  ctx.fillStyle = "#ffffff";
-  ctx.strokeStyle = "#ffffff";
-  const dim = (mode === "energy" ? 0.25 : 0.75) * fx.opacity;
+  ctx.fillStyle = `rgb(${palette.ink})`;
+  ctx.strokeStyle = `rgb(${palette.ink})`;
+  const dim = (mode === "energy" ? 0.25 : 0.75) * fx.opacity * palette.starDim;
   // The night keeps its calm: the music moves its stars half as much
   const pulse = fx.level * (mode === "night" ? 0.5 : 1);
   for (const star of stars) {
@@ -106,9 +156,9 @@ export function paintBackground(
 
 export function paintEnergyAxes(ctx: CanvasRenderingContext2D, area: Area) {
   const { left, top, width, height } = area;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+  ctx.strokeStyle = `rgba(${palette.ink}, 0.06)`;
   ctx.lineWidth = 1;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+  ctx.fillStyle = `rgba(${palette.ink}, 0.35)`;
   ctx.font = "10px ui-sans-serif, system-ui";
   ctx.textAlign = "center";
 
@@ -134,7 +184,7 @@ export function paintEnergyAxes(ctx: CanvasRenderingContext2D, area: Area) {
   ctx.fillText("▲ ENERGÍA", left + 44, top + 26);
   ctx.fillStyle = "rgba(45, 212, 191, 0.8)";
   ctx.fillText("▼ CALMA", left + 44, top + height - 32);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+  ctx.fillStyle = `rgba(${palette.ink}, 0.45)`;
   ctx.textAlign = "right";
   ctx.fillText("PULSACIONES POR MINUTO →", left + width - 44, top + height - 32);
 }
@@ -246,7 +296,7 @@ export function paintLinks(
   if (circular) paintClosingLink(ctx, points[points.length - 1], points[0], t);
 
   const alpha = (mode === "flow" ? 0.45 : mode === "night" ? 0.22 : 0.08) + energy * 0.18;
-  ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+  ctx.strokeStyle = `rgba(${palette.ink}, ${alpha})`;
   ctx.lineWidth = (mode === "flow" ? 1.5 : 1) + energy * 0.6;
   ctx.setLineDash(mode === "night" ? [2, 6] : []);
   ctx.beginPath();
@@ -321,7 +371,7 @@ export function paintSpawnRing(ctx: CanvasRenderingContext2D, track: Track, poin
   ctx.beginPath();
   ctx.arc(point.x, point.y, point.r + 6 + progress * 70, 0, TAU);
   ctx.stroke();
-  ctx.strokeStyle = `rgba(255, 255, 255, ${0.6 * (1 - progress)})`;
+  ctx.strokeStyle = `rgba(${palette.ink}, ${0.6 * (1 - progress)})`;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.arc(point.x, point.y, point.r + 4 + progress * 40, 0, TAU);
@@ -335,7 +385,7 @@ export function paintTraversal(ctx: CanvasRenderingContext2D, points: Point[], c
   const reached = Math.min(Math.floor(progress), points.length - 1);
   const fraction = progress - Math.floor(progress);
 
-  ctx.strokeStyle = "rgba(250, 250, 255, 0.75)";
+  ctx.strokeStyle = `rgba(${palette.ink}, 0.75)`;
   ctx.lineWidth = 2.5;
   ctx.shadowColor = "rgba(167, 139, 250, 0.9)";
   ctx.shadowBlur = 12;
@@ -366,14 +416,14 @@ export function paintTraversal(ctx: CanvasRenderingContext2D, points: Point[], c
   }
   ctx.stroke();
 
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = `rgb(${palette.ink})`;
   ctx.beginPath();
   ctx.arc(head.x, head.y, 4, 0, TAU);
   ctx.fill();
   ctx.shadowBlur = 0;
 
   for (let i = 0; i <= reached; i++) {
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.strokeStyle = `rgba(${palette.ink}, 0.5)`;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.arc(points[i].x, points[i].y, points[i].r + 8, 0, TAU);
@@ -416,7 +466,7 @@ export function paintCurrent(
   ctx.stroke();
 
   // Rotating dotted orbit
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.strokeStyle = `rgba(${palette.ink}, 0.25)`;
   ctx.lineWidth = 1;
   ctx.setLineDash([3, 7]);
   ctx.lineDashOffset = -t * 20;
@@ -436,10 +486,10 @@ export function paintCurrent(
   ctx.fill();
 
   ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.fillStyle = `rgba(${palette.ink}, 0.95)`;
   ctx.font = "600 13px ui-sans-serif, system-ui";
   ctx.fillText(track.title, x, y - r - 52);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.fillStyle = `rgba(${palette.ink}, 0.55)`;
   ctx.font = "11px ui-sans-serif, system-ui";
   ctx.fillText(track.artist, x, y - r - 37);
 }
@@ -449,7 +499,7 @@ export function paintFlowLabels(ctx: CanvasRenderingContext2D, points: Point[]) 
   if (points.length === 0) return;
   ctx.textAlign = "center";
   ctx.font = "10px ui-sans-serif, system-ui";
-  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+  ctx.fillStyle = `rgba(${palette.ink}, 0.5)`;
   points.forEach((point, index) => ctx.fillText(String(index + 1), point.x, point.y + point.r + 16));
 
   ctx.font = "600 10px ui-sans-serif, system-ui";
@@ -469,7 +519,7 @@ export function paintCover(ctx: CanvasRenderingContext2D, cover: HTMLImageElemen
   ctx.clip();
   ctx.drawImage(cover, point.x - radius, point.y - radius, radius * 2, radius * 2);
   ctx.restore();
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.strokeStyle = `rgba(${palette.ink}, 0.7)`;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.arc(point.x, point.y, radius, 0, TAU);
@@ -491,7 +541,7 @@ export function paintImplosion(ctx: CanvasRenderingContext2D, genre: Genre, poin
   ctx.fill();
   // Last flash right before it disappears
   if (progress > 0.7) {
-    ctx.fillStyle = `rgba(255, 255, 255, ${(1 - progress) * 3})`;
+    ctx.fillStyle = `rgba(${palette.ink}, ${(1 - progress) * 3})`;
     ctx.beginPath();
     ctx.arc(point.x, point.y, 2 + (progress - 0.7) * 20, 0, TAU);
     ctx.fill();
@@ -501,7 +551,7 @@ export function paintImplosion(ctx: CanvasRenderingContext2D, genre: Genre, poin
 /** The link that two stars gain when the one between them leaves: it flashes while it "welds". */
 export function paintWeld(ctx: CanvasRenderingContext2D, a: Point, curve: Curve, b: Point, progress: number) {
   const remaining = 1 - progress;
-  ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * remaining})`;
+  ctx.strokeStyle = `rgba(${palette.ink}, ${0.9 * remaining})`;
   ctx.lineWidth = 1 + 3 * remaining;
   ctx.shadowColor = "rgba(34, 211, 238, 0.9)";
   ctx.shadowBlur = 14 * remaining;
@@ -553,7 +603,7 @@ export function paintComet(ctx: CanvasRenderingContext2D, trail: { x: number; y:
   }
   ctx.shadowColor = `rgba(${color}, 0.95)`;
   ctx.shadowBlur = 16;
-  ctx.fillStyle = `rgba(255, 255, 255, ${fade})`;
+  ctx.fillStyle = `rgba(${palette.ink}, ${fade})`;
   ctx.beginPath();
   ctx.arc(trail[0].x, trail[0].y, 4.5, 0, TAU);
   ctx.fill();
@@ -571,7 +621,7 @@ export function paintArrival(ctx: CanvasRenderingContext2D, point: Point, color:
 
 /** Ring around the star chosen with the keyboard. */
 export function paintFocus(ctx: CanvasRenderingContext2D, point: Point) {
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.strokeStyle = `rgba(${palette.ink}, 0.9)`;
   ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 4]);
   ctx.beginPath();

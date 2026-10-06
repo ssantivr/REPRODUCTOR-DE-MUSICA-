@@ -5,6 +5,30 @@
 :root {
   color-scheme: dark;
   --accent: #22d3ee;
+  /* "r g b" triples, used as rgb(var(--ink) / alpha) */
+  --bg: 9 10 15;
+  --ink: 255 255 255;
+  --shade: 0 0 0;
+  --surface: 10 8 24;
+  --glass: rgb(255 255 255 / 0.05);
+  --glass-shadow: rgb(0 0 0 / 0.4);
+  --genre-l: 63%;
+  /* Plain colors for framer-motion, which cannot animate towards rgb(var(...)) */
+  --ink-45: rgba(255, 255, 255, 0.45);
+  --ink-75: rgba(255, 255, 255, 0.75);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: 243 244 250;
+  --ink: 15 23 42;
+  --shade: 255 255 255;
+  --surface: 255 255 255;
+  --glass: rgb(255 255 255 / 0.6);
+  --glass-shadow: rgb(15 23 42 / 0.15);
+  --genre-l: 42%;
+  --ink-45: rgba(15, 23, 42, 0.45);
+  --ink-75: rgba(15, 23, 42, 0.75);
 }
 
 html,
@@ -13,9 +37,15 @@ body {
   overflow: hidden;
 }
 
+body {
+  background: rgb(var(--bg));
+}
+
 @layer components {
   .glass {
-    @apply border border-white/10 bg-white/5 shadow-2xl shadow-black/40 backdrop-blur-md;
+    @apply border border-white/10 backdrop-blur-md;
+    background-color: var(--glass);
+    box-shadow: 0 25px 50px -12px var(--glass-shadow);
   }
 
   /* Panels hang below the measured header and never grow past the dock (see MusicUniverse) */
@@ -30,7 +60,7 @@ body {
 
   .scroll-thin {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    scrollbar-color: rgb(var(--ink) / 0.15) transparent;
   }
 }
 
@@ -105,4 +135,21 @@ input[type="number"] {
     width: 24px;
     height: 24px;
   }
+}
+
+/* Light theme: the pastel text tones made for a dark sky get a darker shade */
+:root[data-theme="light"] :is(.text-cyan-300, .text-sky-300) {
+  color: #0e7490;
+}
+:root[data-theme="light"] :is(.text-rose-300, .text-rose-400, .text-red-300, .hover\:text-rose-300:hover) {
+  color: #be123c;
+}
+:root[data-theme="light"] .text-green-300 {
+  color: #15803d;
+}
+:root[data-theme="light"] :is(.text-fuchsia-300, .text-violet-300) {
+  color: #a21caf;
+}
+:root[data-theme="light"] .text-amber-300 {
+  color: #b45309;
 }

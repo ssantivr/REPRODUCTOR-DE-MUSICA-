@@ -139,7 +139,7 @@ export default function HeapView({ plays, accent }: HeapViewProps) {
                 const from = spot((index - 1) >> 1);
                 const to = spot(index);
                 // Keyed by position: the tree keeps its shape while the songs move through it
-                return <line key={`edge-${index}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="rgba(255,255,255,0.2)" strokeWidth={1} />;
+                return <line key={`edge-${index}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="rgb(var(--ink) / 0.2)" strokeWidth={1} />;
               })}
               {drawn.map((entry, index) => {
                 const { x, y } = spot(index);
@@ -152,11 +152,11 @@ export default function HeapView({ plays, accent }: HeapViewProps) {
                     exit={{ opacity: 0, y: y - 26, scale: 0.4 }}
                     transition={spring}
                   >
-                    <circle r={RADIUS} fill={index === 0 ? `${accent}40` : "#0a0818"} stroke={lit || index === 0 ? accent : "rgba(255,255,255,0.35)"} strokeWidth={lit ? 2 : 1.2} />
-                    <text textAnchor="middle" y={3.5} fontSize={10} fill="#fff" className="font-mono">
+                    <circle r={RADIUS} fill={index === 0 ? `${accent}40` : "rgb(var(--surface))"} stroke={lit || index === 0 ? accent : "rgb(var(--ink) / 0.35)"} strokeWidth={lit ? 2 : 1.2} />
+                    <text textAnchor="middle" y={3.5} fontSize={10} fill="rgb(var(--ink))" className="font-mono">
                       {entry.plays}
                     </text>
-                    <text textAnchor="middle" y={RADIUS + 10} fontSize={8} fill="rgba(255,255,255,0.5)">
+                    <text textAnchor="middle" y={RADIUS + 10} fontSize={8} fill="rgb(var(--ink) / 0.5)">
                       {short(entry.song.title)}
                     </text>
                   </motion.g>
@@ -176,7 +176,7 @@ export default function HeapView({ plays, accent }: HeapViewProps) {
               layout
               transition={spring}
               className="flex w-6 shrink-0 flex-col items-center rounded border py-0.5"
-              style={{ borderColor: swapped.has(index) ? accent : "rgba(255,255,255,0.1)", color: index === 0 ? accent : "rgba(255,255,255,0.75)" }}
+              style={{ borderColor: swapped.has(index) ? accent : "rgb(var(--ink) / 0.1)", color: index === 0 ? accent : "rgb(var(--ink) / 0.75)" }}
             >
               {entry.plays}
               <span className="text-[8px] text-white/30">{index}</span>

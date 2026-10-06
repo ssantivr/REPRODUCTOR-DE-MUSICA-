@@ -72,9 +72,9 @@ function StackColumn({ title, steps, accent, empty, children }: { title: string;
               transition={spring}
               className="rounded-lg border px-2 py-1 text-[11px]"
               style={{
-                borderColor: depth === 0 ? accent : "rgba(255,255,255,0.08)",
-                background: depth === 0 ? `${accent}1f` : "rgba(255,255,255,0.03)",
-                color: depth === 0 ? "#fff" : "rgba(255,255,255,0.6)",
+                borderColor: depth === 0 ? accent : "rgb(var(--ink) / 0.08)",
+                background: depth === 0 ? `${accent}1f` : "rgb(var(--ink) / 0.03)",
+                color: depth === 0 ? "rgb(var(--ink))" : "rgb(var(--ink) / 0.6)",
               }}
             >
               <span className="block truncate">{capitalize(step.label)}</span>

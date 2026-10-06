@@ -14,8 +14,14 @@ export const GENRES: Record<Genre, { label: string; hue: number }> = {
 
 export const GENRE_KEYS = Object.keys(GENRES) as Genre[];
 
-/** HSL color for a genre. Night mode desaturates it so it looks like starlight. */
-export function genreColor(genre: Genre, alpha = 1, night = false): string {
+/**
+ * HSL color for a genre. Night mode desaturates it so it looks like starlight.
+ * In the interface the lightness follows the theme through a CSS variable; the
+ * canvas cannot read variables, so it says which theme it is painting (`light`).
+ */
+export function genreColor(genre: Genre, alpha = 1, night = false, light?: boolean): string {
   const { hue } = GENRES[genre];
-  return night ? `hsla(${hue}, 30%, 80%, ${alpha})` : `hsla(${hue}, 90%, 63%, ${alpha})`;
+  if (night) return `hsla(${hue}, 30%, ${light ? "45%" : "80%"}, ${alpha})`;
+  const lightness = light === undefined ? "var(--genre-l, 63%)" : light ? "42%" : "63%";
+  return `hsla(${hue}, 90%, ${lightness}, ${alpha})`;
 }

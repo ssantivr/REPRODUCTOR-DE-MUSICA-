@@ -40,11 +40,11 @@ export default function HashView({ table, tracks, accent }: HashViewProps) {
           onChange={(event) => setProbe(event.target.value)}
           className="min-w-0 flex-1 truncate rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-white focus:border-white/30 focus:outline-none"
         >
-          <option value="" className="bg-[#0a0818]">
+          <option value="" className="bg-[rgb(var(--surface))]">
             (última casilla consultada)
           </option>
           {tracks.map((track, index) => (
-            <option key={track.uid} value={track.uid} className="bg-[#0a0818]">
+            <option key={track.uid} value={track.uid} className="bg-[rgb(var(--surface))]">
               {index + 1}. {track.title}
             </option>
           ))}
@@ -95,7 +95,7 @@ export default function HashView({ table, tracks, accent }: HashViewProps) {
                     transition={spring}
                     title={titles.get(uid) ?? uid}
                     className="max-w-[5.5rem] truncate rounded px-1"
-                    style={uid === probe ? { background: accent, color: "#05030f" } : { background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }}
+                    style={uid === probe ? { background: accent, color: "#05030f" } : { background: "rgb(var(--ink) / 0.1)", color: "rgb(var(--ink) / 0.8)" }}
                   >
                     {titles.get(uid) ?? "…"}
                   </motion.span>

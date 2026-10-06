@@ -4,6 +4,12 @@ const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      colors: {
+        // Theme-aware: "white" is the ink (text, lines) and "black" the shade behind fields.
+        // Both flip in the light theme, see the variables in globals.css
+        white: "rgb(var(--ink) / <alpha-value>)",
+        black: "rgb(var(--shade) / <alpha-value>)",
+      },
       fontFamily: {
         sans: ["ui-sans-serif", "system-ui", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Cascadia Code", "Consolas", "Menlo", "monospace"],

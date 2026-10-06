@@ -90,7 +90,7 @@ export default function PlayerDock(props: PlayerDockProps) {
               ? `center / cover url("${track.artworkUrl}")`
               : track
                 ? `radial-gradient(circle at 35% 35%, #fff 0%, ${genreColor(track.genre)} 35%, ${genreColor(track.genre, 0.1)} 100%)`
-                : "rgba(255,255,255,0.1)",
+                : "rgb(var(--ink) / 0.1)",
             boxShadow: track?.artworkUrl ? `0 0 0 2px ${genreColor(track.genre, 0.6)}` : undefined,
           }}
           animate={isPlaying ? { rotate: 360, scale: [1, 1.06, 1] } : { rotate: 0, scale: 1 }}
@@ -124,7 +124,7 @@ export default function PlayerDock(props: PlayerDockProps) {
             title={favorite ? "Quitar de favoritas" : "Marcar como favorita"}
             aria-pressed={favorite}
             className="shrink-0 rounded-full p-2 transition hover:bg-white/10"
-            style={{ color: favorite ? "#fb7185" : "rgba(255,255,255,0.4)" }}
+            style={{ color: favorite ? "#fb7185" : "rgb(var(--ink) / 0.4)" }}
           >
             <motion.span className="block" initial={false} animate={{ scale: favorite ? [1, 1.5, 1] : 1 }} transition={{ duration: 0.35 }}>
               <HeartIcon width={16} height={16} filled={favorite} />
@@ -141,7 +141,7 @@ export default function PlayerDock(props: PlayerDockProps) {
             title="Repetir: el final se conecta con el inicio"
             aria-pressed={repeat}
             className="rounded-full p-2 transition hover:bg-white/10"
-            style={{ color: repeat ? accent : "rgba(255,255,255,0.4)" }}
+            style={{ color: repeat ? accent : "rgb(var(--ink) / 0.4)" }}
           >
             <RepeatIcon width={16} height={16} />
           </button>
@@ -179,7 +179,7 @@ export default function PlayerDock(props: PlayerDockProps) {
             title="Aleatorio: «Siguiente» salta a una estrella al azar"
             aria-pressed={shuffle}
             className="rounded-full p-2 transition hover:bg-white/10"
-            style={{ color: shuffle ? accent : "rgba(255,255,255,0.4)" }}
+            style={{ color: shuffle ? accent : "rgb(var(--ink) / 0.4)" }}
           >
             <ShuffleIcon width={16} height={16} />
           </button>
@@ -234,7 +234,7 @@ export default function PlayerDock(props: PlayerDockProps) {
               onClick={() => props.onSource(item.id)}
               title={item.title}
               className="relative flex-1 rounded-full px-1 py-1 text-[11px] font-medium transition sm:px-3"
-              style={{ color: source === item.id ? "#05030f" : "rgba(255,255,255,0.6)" }}
+              style={{ color: source === item.id ? "#05030f" : "rgb(var(--ink) / 0.6)" }}
             >
               {source === item.id && (
                 <motion.span layoutId="source-pill" className="absolute inset-0 rounded-full" style={{ background: accent }} />

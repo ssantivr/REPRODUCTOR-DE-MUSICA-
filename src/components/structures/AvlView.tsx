@@ -107,7 +107,7 @@ export default function AvlView({ tree, rotations, accent }: AvlViewProps) {
             onClick={() => setLab(value)}
             aria-pressed={lab === value}
             className="flex-1 rounded-full px-2 py-1 transition"
-            style={lab === value ? { background: accent, color: "#05030f" } : { color: "rgba(255,255,255,0.6)" }}
+            style={lab === value ? { background: accent, color: "#05030f" } : { color: "rgb(var(--ink) / 0.6)" }}
           >
             {label}
           </button>
@@ -169,7 +169,7 @@ export default function AvlView({ tree, rotations, accent }: AvlViewProps) {
                 return (
                   <motion.line
                     key={`edge-${node.key}`}
-                    stroke="rgba(255,255,255,0.25)"
+                    stroke="rgb(var(--ink) / 0.25)"
                     strokeWidth={1}
                     initial={{ ...ends, opacity: 0 }}
                     animate={{ ...ends, opacity: 1 }}
@@ -203,11 +203,11 @@ export default function AvlView({ tree, rotations, accent }: AvlViewProps) {
                     )}
                     <circle
                       r={RADIUS}
-                      fill={moved ? `${accent}40` : "#0a0818"}
-                      stroke={moved ? accent : node.balance === 0 ? "rgba(255,255,255,0.4)" : "rgba(34,211,238,0.8)"}
+                      fill={moved ? `${accent}40` : "rgb(var(--surface))"}
+                      stroke={moved ? accent : node.balance === 0 ? "rgb(var(--ink) / 0.4)" : "rgba(34,211,238,0.8)"}
                       strokeWidth={1.2}
                     />
-                    <text textAnchor="middle" y={3.5} fontSize={10} fill="#fff" className="font-mono">
+                    <text textAnchor="middle" y={3.5} fontSize={10} fill="rgb(var(--ink))" className="font-mono">
                       {node.key}
                     </text>
                     {node.count > 1 && (
@@ -215,7 +215,7 @@ export default function AvlView({ tree, rotations, accent }: AvlViewProps) {
                         ×{node.count}
                       </text>
                     )}
-                    <text textAnchor="middle" y={RADIUS + 10} fontSize={8} fill="rgba(255,255,255,0.4)">
+                    <text textAnchor="middle" y={RADIUS + 10} fontSize={8} fill="rgb(var(--ink) / 0.4)">
                       {node.balance > 0 ? `+${node.balance}` : node.balance}
                     </text>
                   </motion.g>

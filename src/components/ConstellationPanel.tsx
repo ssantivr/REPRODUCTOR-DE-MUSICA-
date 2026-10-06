@@ -230,7 +230,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
             title="Cambiar de galaxia"
           >
             {galaxies.map((galaxy) => (
-              <option key={galaxy.id} value={galaxy.id} className="bg-[#0a0818]">
+              <option key={galaxy.id} value={galaxy.id} className="bg-[rgb(var(--surface))]">
                 {galaxy.name}
               </option>
             ))}
@@ -294,7 +294,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
             aria-selected={tab === id}
             onClick={() => setTab(id)}
             className="relative flex-1 whitespace-nowrap rounded-full px-2 py-1 font-medium transition"
-            style={{ color: tab === id ? "#05030f" : "rgba(255,255,255,0.6)" }}
+            style={{ color: tab === id ? "#05030f" : "rgb(var(--ink) / 0.6)" }}
           >
             {tab === id && <motion.span layoutId="panel-tab" className="absolute inset-0 rounded-full" style={{ background: accent }} />}
             {/* The label is the key: the queue tab bounces when its count changes */}
@@ -520,7 +520,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
                     <SongRow
                       song={entry.song}
                       lead={
-                        <span className="w-4 shrink-0 text-center text-xs font-semibold" style={{ color: rank === 0 ? accent : "rgba(255,255,255,0.4)" }}>
+                        <span className="w-4 shrink-0 text-center text-xs font-semibold" style={{ color: rank === 0 ? accent : "rgb(var(--ink) / 0.4)" }}>
                           {rank + 1}
                         </span>
                       }
@@ -531,7 +531,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
                         key={entry.plays}
                         className="inline-block shrink-0 text-[10px]"
                         initial={{ scale: 1.4, color: accent }}
-                        animate={{ scale: 1, color: "rgba(255,255,255,0.45)" }}
+                        animate={{ scale: 1, color: "var(--ink-45)" }}
                         transition={{ duration: 0.4 }}
                       >
                         {entry.plays} {entry.plays === 1 ? "vez" : "veces"}
@@ -643,8 +643,8 @@ function StarRow(props: StarRowProps) {
       onDragEnd={props.onDragEnd}
       className="group relative flex items-center gap-2 rounded-xl border px-2 py-2 transition"
       style={{
-        borderColor: isCurrent ? accent : "rgba(255,255,255,0.06)",
-        background: isCurrent ? `${accent}14` : "rgba(255,255,255,0.03)",
+        borderColor: isCurrent ? accent : "rgb(var(--ink) / 0.06)",
+        background: isCurrent ? `${accent}14` : "rgb(var(--ink) / 0.03)",
         boxShadow: isCurrent ? `0 0 18px ${accent}33` : "none",
         opacity: dragging ? 0.4 : 1,
       }}

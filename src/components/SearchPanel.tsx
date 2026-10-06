@@ -167,7 +167,7 @@ export default function SearchPanel({ currentIndex, length, accent, onAdd, onPla
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.12 }}
-              className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-white/10 bg-[#0a0818] py-1 shadow-xl shadow-black/50"
+              className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-white/10 bg-[rgb(var(--surface))] py-1 shadow-xl shadow-black/50"
             >
               {suggestions.map((suggestion, index) => (
                 <li
@@ -309,7 +309,7 @@ function TrieTrail({ trail, accent }: { trail: TrieStep[]; accent: string }) {
               className="flex h-5 min-w-5 items-center justify-center rounded-full border px-1 font-mono"
               style={
                 step.found
-                  ? { borderColor: accent, background: `${accent}26`, color: "#fff", boxShadow: step.ends > 0 ? `0 0 8px ${accent}` : undefined }
+                  ? { borderColor: accent, background: `${accent}26`, color: "rgb(var(--ink))", boxShadow: step.ends > 0 ? `0 0 8px ${accent}` : undefined }
                   : { borderColor: "rgba(251,113,133,0.5)", borderStyle: "dashed", color: "rgba(251,113,133,0.8)" }
               }
               title={step.found ? (step.ends > 0 ? "Aquí termina una palabra guardada" : "Este prefijo existe") : "Ninguna palabra guardada sigue por aquí"}

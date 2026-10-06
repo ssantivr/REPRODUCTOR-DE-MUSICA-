@@ -57,7 +57,7 @@ export default function StructuresPanel(props: StructuresPanelProps) {
             aria-selected={tab === id}
             onClick={() => setTab(id)}
             className="relative flex-1 whitespace-nowrap rounded-full px-1.5 py-1 font-medium transition"
-            style={{ color: tab === id ? "#05030f" : "rgba(255,255,255,0.6)" }}
+            style={{ color: tab === id ? "#05030f" : "rgb(var(--ink) / 0.6)" }}
           >
             {tab === id && <motion.span layoutId="structures-tab" className="absolute inset-0 rounded-full" style={{ background: accent }} />}
             <span className="relative">{label}</span>

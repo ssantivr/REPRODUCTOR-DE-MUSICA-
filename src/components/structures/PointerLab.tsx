@@ -170,7 +170,7 @@ export default function PointerLab({ tracks, accent }: PointerLabProps) {
               onClick={() => setOperation(id)}
               aria-pressed={operation === id}
               className="rounded-full px-2.5 py-1 transition"
-              style={operation === id ? { background: accent, color: "#05030f" } : { color: "rgba(255,255,255,0.6)" }}
+              style={operation === id ? { background: accent, color: "#05030f" } : { color: "rgb(var(--ink) / 0.6)" }}
             >
               {label}
             </button>
@@ -218,8 +218,8 @@ export default function PointerLab({ tracks, accent }: PointerLabProps) {
                   exit={{ opacity: 0, y: spot.y + 24, scale: 0.4 }}
                   transition={spring}
                 >
-                  <circle r={RADIUS} fill={focused ? `${accent}40` : "#0a0818"} stroke={focused ? accent : "rgba(255,255,255,0.4)"} strokeWidth={focused ? 2 : 1.2} />
-                  <text textAnchor="middle" y={RADIUS + 12} fontSize={9} fill={focused ? "#fff" : "rgba(255,255,255,0.6)"}>
+                  <circle r={RADIUS} fill={focused ? `${accent}40` : "rgb(var(--surface))"} stroke={focused ? accent : "rgb(var(--ink) / 0.4)"} strokeWidth={focused ? 2 : 1.2} />
+                  <text textAnchor="middle" y={RADIUS + 12} fontSize={9} fill={focused ? "rgb(var(--ink))" : "rgb(var(--ink) / 0.6)"}>
                     {node.label}
                   </text>
                 </motion.g>
@@ -280,7 +280,7 @@ function PositionSelect({ value, options, onChange }: { value: number; options: 
       className="rounded-lg border border-white/10 bg-black/30 px-1.5 py-1 text-white focus:border-white/30 focus:outline-none"
     >
       {options.map((index) => (
-        <option key={index} value={index} className="bg-[#0a0818]">
+        <option key={index} value={index} className="bg-[rgb(var(--surface))]">
           {index + 1}
         </option>
       ))}

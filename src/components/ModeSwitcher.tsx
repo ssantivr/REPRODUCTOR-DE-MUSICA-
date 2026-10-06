@@ -22,7 +22,7 @@ export default function ModeSwitcher({ mode, onChange }: ModeSwitcherProps) {
             title={`${item.hint} (tecla ${index + 1})`}
             onClick={() => onChange(item.id)}
             className="relative shrink-0 rounded-full px-3 py-1.5 text-xs font-medium tracking-wide transition-colors sm:px-4"
-            style={{ color: active ? "#05030f" : "rgba(255,255,255,0.7)" }}
+            style={{ color: active ? "#05030f" : "rgb(var(--ink) / 0.7)" }}
           >
             {active && (
               <motion.span

@@ -106,7 +106,7 @@ export default function LyricsPanel({ track, accent, getSongTime, onAnchor }: Ly
         {status === "ready" && !lyrics?.instrumental && synced
           ? synced.map((line, index) => {
               const style = {
-                color: index === activeLine ? accent : following ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.8)",
+                color: index === activeLine ? accent : following ? "rgb(var(--ink) / 0.4)" : "rgb(var(--ink) / 0.8)",
                 fontWeight: index === activeLine ? 600 : 400,
               };
               const setRef = (element: HTMLElement | null) => {
