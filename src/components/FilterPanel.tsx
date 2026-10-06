@@ -22,7 +22,7 @@ export default function FilterPanel({ filter, visibleCount, total, accent, onCha
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between pr-10">
         <div>
           <h2 className="text-sm font-semibold text-white">Filtros del universo</h2>
           <p className="text-[11px] text-white/45">

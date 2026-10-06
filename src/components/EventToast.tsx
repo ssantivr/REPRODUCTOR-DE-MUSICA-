@@ -26,7 +26,7 @@ export default function EventToast({ event }: { event: PlaylistEvent | null }) {
   }, [event]);
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-28 z-30 flex justify-center px-4 lg:top-24">
+    <div className="pointer-events-none under-header absolute inset-x-0 z-30 flex justify-center px-4 lg:top-24">
       <AnimatePresence mode="wait">
         {visible && (
           <motion.div

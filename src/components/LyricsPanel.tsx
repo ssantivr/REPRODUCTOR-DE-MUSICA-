@@ -89,8 +89,8 @@ export default function LyricsPanel({ track, accent, getSongTime, onAnchor }: Ly
   const following = synced !== null && activeLine >= 0;
 
   return (
-    <div className="flex max-h-[min(24rem,45vh)] flex-col gap-2">
-      <div className="pr-6">
+    <div className="flex max-h-[min(24rem,45vh,calc(var(--stage-h)_-_2rem))] flex-col gap-2">
+      <div className="pr-10">
         <h2 className="truncate text-sm font-semibold text-white">{track ? track.title : "Letra"}</h2>
         <p className="truncate text-[11px] text-white/45">
           {track ? track.artist : "Elige una canción para ver su letra"}
@@ -121,7 +121,7 @@ export default function LyricsPanel({ track, accent, getSongTime, onAnchor }: Ly
                     setActiveLine(index);
                   }}
                   title="Este verso está sonando ahora"
-                  className="block w-full rounded-lg transition-colors duration-300 hover:bg-white/5"
+                  className="tap-none block w-full rounded-lg transition-colors duration-300 hover:bg-white/5"
                   style={style}
                 >
                   {line.text || "♪"}

@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark;
-  --accent: #a78bfa;
+  --accent: #22d3ee;
 }
 
 html,
@@ -15,7 +15,17 @@ body {
 
 @layer components {
   .glass {
-    @apply border border-white/10 bg-[#0a0818]/60 shadow-2xl shadow-black/40 backdrop-blur-xl;
+    @apply border border-white/10 bg-white/5 shadow-2xl shadow-black/40 backdrop-blur-md;
+  }
+
+  /* Panels hang below the measured header and never grow past the dock (see MusicUniverse) */
+  .under-header {
+    top: calc(var(--header-h, 7rem) + 0.5rem);
+  }
+
+  .fit-stage {
+    max-height: var(--stage-h, 70dvh);
+    overflow-y: auto;
   }
 
   .scroll-thin {
@@ -69,4 +79,30 @@ input[type="number"] {
   background: #fff;
   box-shadow: 0 0 0 3px var(--accent);
   cursor: pointer;
+}
+
+/* Touch screens: every control gets a finger-sized target (44px) */
+@media (pointer: coarse) {
+  :where(button, select, a[href], [role="tab"], [role="radio"]) {
+    min-height: 44px;
+  }
+  :where(button:not(.tap-tight, .tap-none)) {
+    min-width: 44px;
+  }
+  /* Rows packed with icon buttons keep the height but give up some width */
+  .tap-tight {
+    min-width: 30px;
+  }
+  /* Text lines that happen to be buttons (lyrics) */
+  .tap-none {
+    min-height: 0;
+  }
+  .dual-range input[type="range"]::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+  .dual-range input[type="range"]::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+  }
 }

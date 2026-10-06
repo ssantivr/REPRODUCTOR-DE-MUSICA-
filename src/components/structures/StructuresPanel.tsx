@@ -43,8 +43,8 @@ export default function StructuresPanel(props: StructuresPanelProps) {
   const subtitle = TABS.find(([id]) => id === tab)?.[2];
 
   return (
-    <div className="flex max-h-[min(36rem,calc(100dvh-14rem))] flex-col gap-3">
-      <div className="pr-6">
+    <div className="flex max-h-[min(36rem,calc(var(--stage-h)_-_2rem))] flex-col gap-3">
+      <div className="pr-10">
         <h2 className="text-sm font-semibold text-white">Estructuras por dentro</h2>
         <p className="text-[11px] text-white/45">{subtitle}</p>
       </div>

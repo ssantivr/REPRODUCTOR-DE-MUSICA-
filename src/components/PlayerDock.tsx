@@ -224,8 +224,8 @@ export default function PlayerDock(props: PlayerDockProps) {
       </div>
 
       {/* Source, volume and links */}
-      <div className="flex w-full flex-wrap items-center justify-between gap-3 lg:w-auto lg:justify-end">
-        <div className="flex rounded-full bg-white/5 p-0.5" role="radiogroup" aria-label="Fuente de reproducción">
+      <div className="flex w-full items-center justify-between gap-3 sm:flex-wrap lg:w-auto lg:justify-end">
+        <div className="flex min-w-0 flex-1 rounded-full bg-white/5 p-0.5 sm:flex-none" role="radiogroup" aria-label="Fuente de reproducción">
           {SOURCES.map((item) => (
             <button
               key={item.id}
@@ -233,7 +233,7 @@ export default function PlayerDock(props: PlayerDockProps) {
               aria-checked={source === item.id}
               onClick={() => props.onSource(item.id)}
               title={item.title}
-              className="relative rounded-full px-3 py-1 text-[11px] font-medium transition"
+              className="relative flex-1 rounded-full px-1 py-1 text-[11px] font-medium transition sm:px-3"
               style={{ color: source === item.id ? "#05030f" : "rgba(255,255,255,0.6)" }}
             >
               {source === item.id && (
@@ -245,7 +245,7 @@ export default function PlayerDock(props: PlayerDockProps) {
         </div>
 
         {ownAudio && (
-          <label className="flex items-center gap-2 text-white/60" title="Volumen">
+          <label className="flex shrink-0 items-center gap-2 text-white/60" title="Volumen">
             <VolumeIcon width={16} height={16} />
             <input
               type="range"
@@ -254,7 +254,7 @@ export default function PlayerDock(props: PlayerDockProps) {
               step={0.01}
               value={volume}
               onChange={(event) => props.onVolume(Number(event.target.value))}
-              className="w-20"
+              className="w-16 sm:w-20"
               style={{ accentColor: accent }}
               aria-label="Volumen"
             />
@@ -262,7 +262,7 @@ export default function PlayerDock(props: PlayerDockProps) {
         )}
 
         {track && (
-          <div className="flex items-center gap-1 text-[11px]">
+          <div className="hidden items-center gap-1 text-[11px] sm:flex">
             <a href={youtubeUrl(track)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-white/50 transition hover:bg-white/10 hover:text-white">
               YT <ExternalIcon width={12} height={12} />
             </a>

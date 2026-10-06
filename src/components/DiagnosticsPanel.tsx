@@ -43,7 +43,7 @@ export default function DiagnosticsPanel({ metrics, size, accent }: DiagnosticsP
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-end justify-between pr-6">
+      <div className="flex items-end justify-between pr-10">
         <div>
           <h2 className="text-sm font-semibold text-white">Diagnóstico de la lista</h2>
           <p className="text-[11px] text-white/45">

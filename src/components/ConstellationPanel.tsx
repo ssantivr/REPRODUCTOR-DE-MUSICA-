@@ -221,7 +221,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
     <div className="flex h-full flex-col gap-3">
       {/* Playlists ("galaxias") */}
       {galaxyAction === null ? (
-        <div className="flex items-center gap-1 pr-7 lg:pr-0">
+        <div className="flex items-center gap-1 pr-10 lg:pr-0">
           <select
             value={activeGalaxyId}
             onChange={(event) => props.onSwitchGalaxy(event.target.value)}
@@ -257,7 +257,7 @@ export default function ConstellationPanel(props: ConstellationPanelProps) {
           <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={handleFile} />
         </div>
       ) : (
-        <form className="flex items-center gap-1.5 pr-7 text-[11px] lg:pr-0" onSubmit={submitGalaxy}>
+        <form className="flex items-center gap-1.5 pr-10 text-[11px] lg:pr-0" onSubmit={submitGalaxy}>
           {galaxyAction === "delete" ? (
             <p className="min-w-0 flex-1 truncate text-white/75">
               ¿Eliminar «{activeGalaxy?.name}» y sus {tracks.length} estrellas?
@@ -670,7 +670,7 @@ function StarRow(props: StarRowProps) {
         title="Arrastra para mover · con el teclado: flechas arriba y abajo"
         aria-label={`Mover «${track.title}», posición ${position}`}
         // touch-none: a finger on the grip drags the star instead of scrolling the list
-        className="-my-1.5 -ml-2 -mr-1.5 shrink-0 cursor-grab touch-none select-none rounded p-2 text-white/25 transition hover:text-white/70 focus-visible:text-white active:cursor-grabbing"
+        className="tap-tight -my-1.5 -ml-2 -mr-1.5 shrink-0 cursor-grab touch-none select-none rounded p-2 text-white/25 transition hover:text-white/70 focus-visible:text-white active:cursor-grabbing"
       >
         <GripIcon width={12} height={12} />
       </button>
@@ -691,13 +691,13 @@ function StarRow(props: StarRowProps) {
           {badge}
         </span>
       ))}
-      <button onClick={props.onEnqueue} title="Poner en la cola: suena después de la actual" className="rounded-full p-1 text-white/40 transition hover:bg-white/10 hover:text-white">
+      <button onClick={props.onEnqueue} title="Poner en la cola: suena después de la actual" className="tap-tight rounded-full p-1 text-white/40 transition hover:bg-white/10 hover:text-white">
         <QueueIcon width={12} height={12} />
       </button>
-      <button onClick={props.onPlay} title="Reproducir" className="rounded-full p-1 text-white/40 transition hover:bg-white/10 hover:text-white">
+      <button onClick={props.onPlay} title="Reproducir" className="tap-tight rounded-full p-1 text-white/40 transition hover:bg-white/10 hover:text-white">
         <PlayIcon width={12} height={12} />
       </button>
-      <button onClick={props.onRemove} title="Quitar de la constelación" className="rounded-full p-1 text-white/40 transition hover:bg-rose-500/20 hover:text-rose-300">
+      <button onClick={props.onRemove} title="Quitar de la constelación" className="tap-tight rounded-full p-1 text-white/40 transition hover:bg-rose-500/20 hover:text-rose-300">
         <TrashIcon width={12} height={12} />
       </button>
     </div>

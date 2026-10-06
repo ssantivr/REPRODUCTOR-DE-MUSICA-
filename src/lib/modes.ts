@@ -10,7 +10,7 @@ export interface ModeMeta {
 }
 
 export const MODES: ModeMeta[] = [
-  { id: "universe", label: "Universo", hint: "Las canciones orbitan: más energía, órbita más amplia; más tempo, giro más rápido", accent: "#a78bfa" },
+  { id: "universe", label: "Universo", hint: "Las canciones orbitan: más energía, órbita más amplia; más tempo, giro más rápido", accent: "#ff4df0" },
   { id: "flow", label: "Flujo", hint: "La lista como un río: los pulsos viajan hacia adelante y hacia atrás", accent: "#22d3ee" },
   { id: "night", label: "Noche", hint: "Constelaciones tenues y un sonido más suave", accent: "#cbd5e1" },
   { id: "energy", label: "Energía/Calma", hint: "Mapa: a la derecha más rápido, arriba más energía", accent: "#fb7185" },

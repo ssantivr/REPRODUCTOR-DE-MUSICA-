@@ -62,7 +62,7 @@ export function paintBackground(
     ctx.fillStyle = moon;
     ctx.fillRect(0, 0, w, h);
   } else {
-    ctx.fillStyle = "#04020c";
+    ctx.fillStyle = "#090A0F";
     ctx.fillRect(0, 0, w, h);
     const big = Math.max(w, h);
     const nebulaA = ctx.createRadialGradient(w * (0.45 + 0.1 * Math.sin(t * 0.05)), h * 0.45, 0, w * 0.45, h * 0.45, big * 0.6);

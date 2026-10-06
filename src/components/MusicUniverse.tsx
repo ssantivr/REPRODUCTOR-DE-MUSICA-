@@ -566,15 +566,22 @@ function Universe() {
   // ---------------------------------------------------------------------------
   // Layout
   // ---------------------------------------------------------------------------
-  // Real dock height (it varies on mobile because the controls wrap into several rows)
+  // Real header and dock heights (they vary on mobile because their controls stack into several rows)
+  const headerRef = useRef<HTMLElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(90);
   const [dockHeight, setDockHeight] = useState(120);
   useEffect(() => {
+    const header = headerRef.current;
     const dock = dockRef.current;
-    if (!dock) return;
-    const measure = () => setDockHeight(window.innerHeight - dock.getBoundingClientRect().top);
+    if (!header || !dock) return;
+    const measure = () => {
+      setHeaderHeight(header.getBoundingClientRect().bottom);
+      setDockHeight(window.innerHeight - dock.getBoundingClientRect().top);
+    };
     measure();
     const observer = new ResizeObserver(measure);
+    observer.observe(header);
     observer.observe(dock);
     window.addEventListener("resize", measure);
     return () => {
@@ -586,17 +593,23 @@ function Universe() {
   const embedVisible = !ownAudio && currentTrack !== null;
   const embedHeight = source === "youtube" ? 200 : 170;
   const insets: CanvasInsets = {
-    top: isDesktop ? 90 : 120,
+    top: isDesktop ? 90 : headerHeight + 8,
     bottom: dockHeight + (embedVisible ? embedHeight : 0),
     left: isDesktop && searchOpen ? 352 : 16,
     right: isDesktop && listOpen ? 384 : 16,
   };
 
-  const panelClass = isDesktop ? "top-20" : "top-28 inset-x-3";
+  const panelClass = isDesktop ? "top-20" : "under-header inset-x-3";
   const panelStyle = { bottom: dockHeight + 8 };
+  // Read by the .under-header and .fit-stage classes: the free space between the header and the dock
+  const stageVars = {
+    "--accent": accent,
+    "--header-h": `${headerHeight}px`,
+    "--stage-h": `calc(100dvh - ${headerHeight + dockHeight + 16}px)`,
+  } as CSSProperties;
 
   return (
-    <main className="relative h-[100dvh] w-full overflow-hidden text-white" style={{ "--accent": accent } as CSSProperties}>
+    <main className="relative h-[100dvh] w-full overflow-hidden text-white" style={stageVars}>
       <UniverseCanvas
         tracks={tracks}
         currentUid={currentTrack?.uid ?? null}
@@ -616,12 +629,12 @@ function Universe() {
       <EventToast event={playlist.event} />
 
       {/* Header */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-center justify-between gap-3 px-4 pt-4 lg:flex-nowrap">
+      <header ref={headerRef} className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-center justify-between gap-2 px-3 pt-3 sm:gap-3 sm:px-4 sm:pt-4 lg:flex-nowrap">
         <div className="pointer-events-auto">
           <h1 className="text-lg font-semibold tracking-tight">
             Universo <span style={{ color: accent }}>Musical</span>
           </h1>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Constelación doblemente enlazada</p>
+          <p className="hidden text-[10px] uppercase tracking-[0.2em] text-white/40 sm:block">Constelación doblemente enlazada</p>
         </div>
 
         <div className="pointer-events-auto order-3 flex w-full flex-col items-center gap-1 lg:order-none lg:w-auto">
@@ -632,67 +645,67 @@ function Universe() {
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 4 }}
-              className="text-center text-[11px] text-white/45"
+              className="hidden text-center text-[11px] text-white/45 sm:block"
             >
               {MODE_BY_ID[mode].hint}
             </motion.p>
           </AnimatePresence>
         </div>
 
-        <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
+        <nav className="pointer-events-auto grid w-full grid-cols-6 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:justify-end sm:gap-2" aria-label="Paneles">
           <button
             onClick={toggleStructures}
-            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            className="glass flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
             style={{ color: structuresOpen ? accent : undefined }}
             aria-pressed={structuresOpen}
             title="Las estructuras de datos por dentro · E"
           >
-            <TreeIcon width={14} height={14} /> Estructuras
+            <TreeIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Estructuras</span>
           </button>
           <button
             onClick={toggleDiagnostics}
-            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            className="glass flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
             style={{ color: diagnosticsOpen ? accent : undefined }}
             aria-pressed={diagnosticsOpen}
             title="Diagnóstico de la lista · D"
           >
-            <SparkIcon width={14} height={14} /> Diagnóstico
+            <SparkIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Diagnóstico</span>
           </button>
           <button
             onClick={() => setLyricsOpen((open) => !open)}
-            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            className="glass flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
             style={{ color: lyricsOpen ? accent : undefined }}
             aria-pressed={lyricsOpen}
             title="Letra de la canción · L"
           >
-            <LyricsIcon width={14} height={14} /> Letra
+            <LyricsIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Letra</span>
           </button>
           <button
             onClick={() => setFilterOpen((open) => !open)}
-            className="glass relative flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            className="glass relative flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
             style={{ color: filterOpen ? accent : undefined }}
             aria-pressed={filterOpen}
           >
-            <FilterIcon width={14} height={14} /> Filtros
+            <FilterIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Filtros</span>
             {isFilterActive(filter) && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ background: accent }} />}
           </button>
           <button
             onClick={toggleSearch}
-            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            className="glass flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
             style={{ color: searchOpen ? accent : undefined }}
             aria-pressed={searchOpen}
           >
-            <SearchIcon width={14} height={14} /> Buscar
+            <SearchIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Buscar</span>
           </button>
           <button
             onClick={toggleList}
-            className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
+            className="glass flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition hover:bg-white/10"
             style={{ color: listOpen ? accent : undefined }}
             aria-pressed={listOpen}
           >
-            <ListIcon width={14} height={14} /> Constelación ({tracks.length})
+            <ListIcon width={14} height={14} /> <span className="sr-only sm:not-sr-only">Constelación</span> ({tracks.length})
           </button>
-        </div>
+        </nav>
       </header>
 
       {/* Floating spatial filter */}
@@ -703,7 +716,7 @@ function Universe() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.97 }}
             transition={{ duration: 0.18 }}
-            className="glass absolute inset-x-3 top-28 z-40 rounded-2xl p-4 sm:left-auto sm:right-4 sm:w-[22rem] lg:top-16"
+            className="glass under-header fit-stage absolute inset-x-3 z-40 rounded-2xl p-4 sm:left-auto sm:right-4 sm:w-[22rem] lg:top-16"
           >
             <PanelClose onClick={() => setFilterOpen(false)} />
             <FilterPanel filter={filter} visibleCount={visibleCount} total={tracks.length} accent={accent} onChange={setFilter} />
@@ -719,7 +732,7 @@ function Universe() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.97 }}
             transition={{ duration: 0.18 }}
-            className="glass absolute inset-x-3 top-28 z-40 rounded-2xl p-4 sm:left-4 sm:right-auto sm:w-[24rem] lg:top-16"
+            className="glass under-header fit-stage absolute inset-x-3 z-40 rounded-2xl p-4 sm:left-4 sm:right-auto sm:w-[24rem] lg:top-16"
           >
             <PanelClose onClick={() => setDiagnosticsOpen(false)} />
             <DiagnosticsPanel metrics={playlist.metrics} size={tracks.length} accent={accent} />
@@ -735,7 +748,7 @@ function Universe() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.97 }}
             transition={{ duration: 0.18 }}
-            className="glass absolute inset-x-3 top-28 z-40 rounded-2xl p-4 sm:left-4 sm:right-auto sm:w-[27rem] lg:top-16"
+            className="glass under-header fit-stage absolute inset-x-3 z-40 rounded-2xl p-4 sm:left-4 sm:right-auto sm:w-[27rem] lg:top-16"
           >
             <PanelClose onClick={() => setStructuresOpen(false)} />
             <StructuresPanel
@@ -762,7 +775,7 @@ function Universe() {
             animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
             exit={{ opacity: 0, x: "-50%", y: -10, scale: 0.97 }}
             transition={{ duration: 0.18 }}
-            className="glass absolute left-1/2 top-28 z-40 w-[min(24rem,calc(100%-1.5rem))] rounded-2xl p-4 lg:top-20"
+            className="glass under-header fit-stage absolute left-1/2 z-40 w-[min(24rem,calc(100%-1.5rem))] rounded-2xl p-4 lg:top-20"
           >
             <PanelClose onClick={() => setLyricsOpen(false)} />
             <LyricsPanel track={currentTrack} accent={accent} getSongTime={getSongTime} onAnchor={canAnchorLyrics ? handleAnchorLyric : undefined} />
@@ -923,7 +936,7 @@ function PanelClose({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="absolute right-3 top-3 z-10 rounded-full p-1 text-white/50 transition hover:bg-white/10 hover:text-white"
+      className="absolute right-1.5 top-1.5 z-10 flex items-center justify-center rounded-full p-1 text-white/50 transition hover:bg-white/10 hover:text-white"
       aria-label="Cerrar panel"
     >
       <CloseIcon width={16} height={16} />

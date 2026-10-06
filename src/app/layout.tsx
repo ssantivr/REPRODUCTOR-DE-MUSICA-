@@ -7,13 +7,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#04020c",
+  themeColor: "#090A0F",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es">
-      <body className="bg-[#04020c] font-sans antialiased">{children}</body>
+      <body className="bg-[#090A0F] font-sans antialiased">{children}</body>
     </html>
   );
 }
